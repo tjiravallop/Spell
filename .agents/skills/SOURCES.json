@@ -1,0 +1,46 @@
+{
+  "scope": "project",
+  "installation": "Codex skill-installer with --dest .agents/skills; skill files and supporting resources only",
+  "sources": [
+    {
+      "repository": "https://github.com/gamedev-skills/awesome-gamedev-agent-skills",
+      "commit": "4cce500ce1a779b12fdd824be581c7d2ab4e7ba2",
+      "skills": [
+        "phaser-core",
+        "game-ai",
+        "save-systems",
+        "create-game-assets",
+        "audio-design",
+        "game-ui-ux",
+        "performance-optimization"
+      ]
+    },
+    {
+      "repository": "https://github.com/pbakaus/impeccable",
+      "commit": "cf7ea4a8fe56f3e186e9ffaca3124937e36e6430",
+      "skills": [
+        "impeccable"
+      ]
+    },
+    {
+      "repository": "https://github.com/MengTo/Skills",
+      "ref": "main",
+      "skills": ["create-game-vfx"]
+    },
+    {
+      "repository": "https://github.com/sekaikx/ForgeSkills",
+      "ref": "main",
+      "skills": ["gamedev-vfx-impact"]
+    },
+    {
+      "repository": "https://github.com/gamedev-skills/awesome-gamedev-agent-skills",
+      "ref": "main",
+      "skills": ["game-feel"]
+    },
+    {
+      "repository": "https://github.com/patch-gg/pixelfx",
+      "commit": "5294518ce7c72e48b6100a744596e0acf57f2826",
+      "skills": ["pixelfx"]
+    }
+  ]
+}
