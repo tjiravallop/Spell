@@ -96,6 +96,13 @@
           </div>
           <div id="known-shortcuts" class="known-shortcuts" role="group" aria-label="สูตรลัดที่ค้นพบ" hidden></div>
         </div>
+        <div id="discard-alert" class="discard-alert-banner" hidden>
+          <div class="discard-alert-info">
+            <span class="discard-alert-badge">⚠️ มือเกิน</span>
+            <span id="discard-alert-text">ไพ่ในมือเกิน 10 ใบ · ต้องทิ้งก่อนเล่นต่อ</span>
+          </div>
+          <button type="button" class="primary-button small-button" id="reopen-discard-btn">แตะเพื่อเลือกทิ้งไพ่</button>
+        </div>
         <div id="word-bank" class="word-bank" aria-label="คลังคำ"></div>
         <p id="word-description" class="word-description" hidden></p>
       </section>
@@ -176,13 +183,14 @@
           <div id="sanctuary-shop-list" class="sanctuary-shop-list"></div>
         </section>
 
-        <section class="sanctuary-panel sanctuary-upgrade-panel" id="sanctuary-upgrade-panel" hidden>
+        <section class="sanctuary-panel sanctuary-upgrade-panel" id="sanctuary-upgrade-panel" data-card-filter-panel="forge" hidden>
           <div class="sanctuary-panel-head">
             <div class="sanctuary-forge-resources" id="sanctuary-forge-resources">
               <span id="sanctuary-forge-gold" class="rpg-gold-badge">💰 0 ทอง</span>
             </div>
           </div>
           <p class="muted">ใช้ทองตีบวกการ์ดได้ถึง <strong>+10</strong> หากตีพลาด การ์ดจะอยู่ระดับเดิม เมื่อถึง <strong>+7, +9 และ +10</strong> เอฟเฟกต์รองจะปลดล็อกและเพิ่มระดับอัตโนมัติ</p>
+          <div id="sanctuary-card-filters"></div>
           <div id="sanctuary-upgrade-list" class="sanctuary-upgrade-list"></div>
         </section>
 
