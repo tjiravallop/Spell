@@ -1,7 +1,10 @@
-import { ENEMIES, FLOOR21_START_ROOM, RELIC_DRAFT_CATALOG } from './run.js';
+import { shieldProtection } from './shields.js';
+import { ENEMIES, FLOOR21_START_ROOM, RELIC_DRAFT_CATALOG, getFloorInfo } from './run.js';
 import { elementFamily } from './words.js';
 import { middleSprites } from './middle-sprites.js';
 import { loadSpriteArt, spriteFrame } from './sprite-art.js';
+import { drawTowerFittings, towerArtPalette, towerEnemyArt } from './tower-enemy-art.js';
+import { drawNewTowerSprite } from './tower-pixel-sprites.js';
 
 export const PALETTE = ['#10191b', '#172326', '#203033', '#2b3d3c', '#3b4b46', '#536454', '#718063', '#9da77c', '#cbd5a1', '#eff0c4', '#332d2b', '#514036', '#765740', '#a57a50', '#d3aa6b', '#efd19a', '#4d3036', '#7b464c', '#b46c67', '#e29d83', '#3d374e', '#60516f', '#907ba6', '#bca5d2', '#335250', '#53857b', '#8bb7a0', '#b7d9bd', '#7e512e', '#b98745', '#e4b659', '#f5db87'];
 const C = PALETTE;
@@ -11,7 +14,7 @@ export const LARGE_BOSS_KINDS = new Set([
   'prism_watcher', 'astral_sentinel', 'elder_grimoire', 'eclipse_mage', 'glacial_sovereign', 'thunder_colossus', 'nexus_codex', 'tempest_archon',
   'seal_curator', 'crown_archivist',
   'gate_weaver', 'mirror_regent', 'seam_warden', 'loom_sovereign',
-  'volcano_colossus', 'thunder_drake_emperor', 'ancient_chitin_behemoth', 'nether_dread_lord', 'eternity_overlord',
+  'volcano_colossus', 'thunder_drake_emperor', 'ancient_chitin_behemoth', 'abyssal_kraken', 'nether_dread_lord', 'eternity_overlord', 'eternity_reborn',
 ]);
 const arcaneBeamSheets = new Map();
 const arcaneBeam = {
@@ -26,6 +29,7 @@ const combatSpriteSheets = {
 
 export const fizzleLabel = cost => `คาถาสลาย · เสีย ${cost} มานา`;
 export const damageLabel = event => {
+  if (event.phaseGate) return 'ถึงขอบเขตเฟส';
   if (event.amount <= 0) return 'เกราะกันหมด';
   const tag = event.weakness ? ' (จุดอ่อน!)' : event.resisted ? ' (ต้านทาน)' : '';
   return `−${event.actual ?? event.amount} HP${tag}`;
@@ -123,6 +127,7 @@ export const vfxScale = source => (source?.grand ? 5 : source?.large ? 2 : 1);
 export class Battlefield {
   constructor(canvas, settings) {
     this.canvas = canvas; this.ctx = canvas.getContext('2d', { alpha: false });
+    this.hpNumbersInHud = Boolean(canvas.closest?.('.battle-scene'));
     this.settings = settings; this.state = null; this.target = null; this.events = []; this.started = 0; this.duration = 0;
     this.spriteArt = loadSpriteArt();
     this.background = document.createElement('canvas'); this.background.width = 320; this.background.height = 180;
@@ -144,6 +149,18 @@ export class Battlefield {
   set(state, target) {
     this.state = state;
     this.target = target;
+    const floor = state ? getFloorInfo(state.room, state.rooms?.length).floor : 0;
+    if (floor !== this.artFloor) {
+      this.artFloor = floor;
+      this.enemyPalette = towerArtPalette(floor, C);
+      this.alternateEnemyPalette = towerArtPalette(floor, C, true);
+    }
+    this.alternateEnemyIds = new Set();
+    const seenKinds = new Set();
+    for (const enemy of state?.enemies ?? []) {
+      if (seenKinds.delete(enemy.kind)) this.alternateEnemyIds.add(enemy.id);
+      else seenKinds.add(enemy.kind);
+    }
     if (state && !this.settings.reducedMotion && this.canvas.id === 'battle-canvas') {
       for (const sheet of Object.values(combatSpriteSheets)) {
         sheet.image ??= new Image();
@@ -187,19 +204,21 @@ export class Battlefield {
     this.events = events;
     this.started = performance.now();
     this.duration = 0;
+    const speed = Math.max(1, Math.min(3, Number(this.settings.combatSpeed) || 1));
     const lastEvent = events.at(-1);
-    const victoryHold = lastEvent?.type === 'room-clear' ? 900 : 0;
+    const victoryHold = Math.round((lastEvent?.type === 'room-clear' ? 900 : 0) / speed);
     const actionEvents = victoryHold ? events.slice(0, -1) : events;
     const rawEnds = actionEvents.map(event => {
-      const action = ['projectile', 'attack', 'mirror-reflect', 'ember-thorns', 'storm-static', 'blast', 'shield', 'fizzle', 'blackhole-open'].includes(event.type)
+      const action = ['projectile', 'attack', 'mirror-reflect', 'ember-thorns', 'storm-static', 'nether-curse', 'cosmic-echo', 'blast', 'shield', 'shield-delay', 'fizzle', 'blackhole-open', 'boss-phase', 'timestop', 'ascension', 'ascension-ready', 'summon', 'summon_invoke', 'summon_hit', 'summon_strike', 'summon_relay', 'summon_counter', 'summon_break', 'summon_rebirth'].includes(event.type)
         || Boolean(event.specialBoss && event.type === 'charge');
-      const ultBonus = event.ultimate && event.type === 'attack' ? 180 : 0;
+      const ultBonus = (event.ultimate && event.type === 'attack') ? 180 : event.type === 'boss-phase' ? 280 : 0;
       const wardHold = event.type === 'projectile' && event.blocked ? 160 : 0;
-      this.duration += (this.settings.reducedMotion ? (action ? 200 : 110) : (action ? 520 : 260) + wardHold + ultBonus);
+      const baseStep = this.settings.reducedMotion ? (action ? 200 : 110) : (action ? 520 : 260) + wardHold + ultBonus;
+      this.duration += Math.round(baseStep / speed);
       return this.duration;
     });
-    const minDuration = this.settings.reducedMotion ? 500 : 1500;
-    const maxDuration = this.settings.reducedMotion ? 1200 : 3400;
+    const minDuration = Math.round((this.settings.reducedMotion ? 500 : 1500) / speed);
+    const maxDuration = Math.round((this.settings.reducedMotion ? 1200 : 3400) / speed);
     if (this.duration > maxDuration && this.duration > 0) {
       const scale = maxDuration / this.duration;
       this.eventEnds = rawEnds.map(end => Math.round(end * scale));
@@ -221,15 +240,7 @@ export class Battlefield {
   buildSnapshots() {
     const enemies = this.state?.enemies ?? [];
     const basePositions = this.positions();
-    const shield = this.state?.player.shield;
-    let curProtection = {
-      amount: shield?.layers.reduce((sum, hp) => sum + hp, 0) ?? 0,
-      layers: shield?.layers.length ?? 0,
-      element: shield?.effect,
-      layerEffects: shield?.layerEffects?.map(layer => layer.elements),
-      grand: Boolean(shield?.grand),
-      large: Boolean(shield?.large),
-    };
+    let curProtection = shieldProtection(this.state?.player.shield);
     const curPositions = [...basePositions];
     const curDead = new Set();
     const curWards = Object.fromEntries(enemies.map(e => [e.id, e.ward]));
@@ -237,6 +248,8 @@ export class Battlefield {
     const newPuddles = new Set();
     let oldBlackhole = this.state?.blackhole?.slot;
     let newBlackhole;
+    const initialSummon = this.state?.player?.summon || this.state?.summon;
+    let curSummon = initialSummon && initialSummon.hp > 0 ? { ...initialSummon } : null;
     const deathStartMs = {};
     this.snapshots = [];
     this.contacts = [];
@@ -248,6 +261,7 @@ export class Battlefield {
         wards: { ...curWards },
         puddles: new Set([...oldPuddles, ...newPuddles]),
         blackholes: new Set([oldBlackhole, newBlackhole].filter(slot => slot !== undefined)),
+        summon: curSummon ? { ...curSummon } : null,
       });
       const ev = this.events[i];
       if (!ev) break;
@@ -271,8 +285,9 @@ export class Battlefield {
       if (ev.type === 'magma-erupt') oldPuddles.delete(ev.slot);
       if (ev.type === 'blackhole-open') newBlackhole = ev.slot;
       if (ev.type === 'blast' && ev.element === 'blackhole') oldBlackhole = undefined;
-      if (ev.type === 'projectile' && ev.blocked && ev.target) {
-        curWards[ev.target] = Math.max(0, (curWards[ev.target] ?? 0) - 1);
+      if ((ev.type === 'dispel' || (ev.type === 'projectile' && ev.blocked)) && ev.target) {
+        const removed = ev.type === 'dispel' ? ev.amount : 1;
+        curWards[ev.target] = Math.max(0, (curWards[ev.target] ?? 0) - removed);
         ev.wardRemaining = curWards[ev.target];
       }
       this.contacts.push({ event: ev, at: contact, index: i });
@@ -297,11 +312,36 @@ export class Battlefield {
           }
         }
       }
-      if (ev.type === 'dispel') curWards[ev.target] = 0;
-      if (ev.type === 'shield') curProtection = ev;
+      if (ev.type === 'shield') curProtection = ev.protection ?? ev;
       else if (ev.type === 'brace') curProtection = ev.protection;
-      else if (ev.type === 'attack' || ev.type === 'mirror-reflect' || ev.type === 'ember-thorns' || ev.type === 'storm-static') curProtection = ev.protection;
+      else if (ev.type === 'attack' || ev.type === 'mirror-reflect' || ev.type === 'ember-thorns' || ev.type === 'storm-static' || ev.type === 'nether-curse' || ev.type === 'cosmic-echo') curProtection = ev.protection;
       else if (ev.type === 'blast' && ev.protection) curProtection = ev.protection;
+      if (ev.type === 'summon_invoke') {
+        curSummon = {
+          creatureId: ev.creature,
+          name: ev.name || ev.creature,
+          element: ev.element,
+          isGrand: Boolean(ev.isGrand),
+          hp: ev.hp,
+          maxHp: ev.maxHp ?? ev.hp,
+          armor: ev.armor ?? 0,
+          ward: ev.ward ?? 0,
+          counter: ev.counter ?? 0,
+          strike: ev.strike ?? 0,
+          aoeIntercept: Boolean(ev.aoeIntercept),
+        };
+      } else if (ev.type === 'summon_hit' && curSummon) {
+        curSummon = {
+          ...curSummon,
+          hp: Math.max(0, ev.hpRemaining ?? (curSummon.hp - (ev.damage ?? 0))),
+        };
+      } else if (ev.type === 'ward_absorb' && ev.target === 'summon' && curSummon) {
+        curSummon = { ...curSummon, ward: Math.max(0, (curSummon.ward ?? 0) - 1) };
+      } else if (ev.type === 'summon_rebirth' && curSummon) {
+        curSummon = { ...curSummon, hp: ev.hp ?? Math.ceil((curSummon.maxHp ?? 1) / 2) };
+      } else if (['summon_break', 'summon_depart', 'phoenix_revive', 'cheat_death'].includes(ev.type)) {
+        curSummon = null;
+      }
     }
     this.deathStartMs = deathStartMs;
   }
@@ -311,7 +351,7 @@ export class Battlefield {
   eventContactDelay(index) {
     if (this.settings.reducedMotion) return 0;
     const event = this.events[index];
-    const contact = ['projectile', 'mirror-reflect', 'ember-thorns', 'storm-static'].includes(event.type)
+    const contact = ['projectile', 'mirror-reflect', 'ember-thorns', 'storm-static', 'nether-curse', 'cosmic-echo'].includes(event.type)
       ? 0.65
       : event.type === 'attack' ? 0.62 : 0;
     return (this.eventEnds[index] - this.eventStart(index)) * contact;
@@ -388,7 +428,7 @@ export class Battlefield {
     for (let i = 0; i < 9; i++) r(22 + i * 7, 146 + (i % 2 ? -4 : 5), 2, 2, C[5]);
     r(309, 10, 2, 28, C[3]); r(301, 16, 8, 2, C[3]); r(301, 18, 2, 5, C[3]);
   }
-  sprite(kind, x, baseline, frame, pose = 'idle', hitElement = null, progress = 0) {
+  sprite(kind, x, baseline, frame, pose = 'idle', hitElement = null, progress = 0, alternate = false) {
     const g = this.ctx;
     const boss = LARGE_BOSS_KINDS.has(kind);
     const originalKind = kind;
@@ -403,11 +443,21 @@ export class Battlefield {
       g.fillStyle = C[4]; g.fillRect(x - width / 2, baseline - 3, width, 3);
       return;
     }
+    const palette = originalKind === 'wizard' ? C : (alternate ? this.alternateEnemyPalette : this.enemyPalette) ?? C;
+    const idleFrame = this.settings.reducedMotion ? 0 : frame;
+    if (this.artFloor >= 6) {
+      if (drawNewTowerSprite(originalKind, r, palette, pose, idleFrame, this.settings.reducedMotion, alternate)) return;
+      if (Object.hasOwn(towerEnemyArt, originalKind)) {
+        towerEnemyArt[originalKind](r, palette, pose, idleFrame);
+        return;
+      }
+    }
     const art = spriteFrame(originalKind, pose, frame, progress, this.settings.reducedMotion);
     const image = this.spriteArt[originalKind];
     if (art && image?.complete && image.naturalWidth) {
       g.drawImage(image, art.index * art.size, art.row * art.size, art.size, art.size,
         Math.round(x - art.pivot[0]), Math.round(baseline - art.pivot[1]), art.size, art.size);
+      drawTowerFittings(originalKind, this.artFloor ?? 0, r, palette);
       return;
     }
     if (kind === 'wizard') {
@@ -419,7 +469,9 @@ export class Battlefield {
       r(27, 9, 2, 23, C[13]); r(25, 5, 6, 7, C[25]); r(26, 6, 4, 4, C[27]);
       r(26, 4, 4, 1, C[7]); r(9, 6, 3, 1, C[14]);
     } else if (Object.hasOwn(middleSprites, kind)) {
-      middleSprites[kind](r, C, pose, this.settings.reducedMotion ? 0 : frame);
+      const colors = kind === 'eternity_overlord' || kind === 'eternity_reborn' ? C : palette;
+      middleSprites[kind](r, colors, pose, idleFrame);
+      drawTowerFittings(originalKind, this.artFloor ?? 0, r, colors);
     } else if (kind === 'swarm') {
       r(6, 17, 20, 3, C[5]); r(3, 20, 26, 8, C[6]); r(1, 26, 30, 4, C[5]); r(4, 29, 25, 3, C[4]);
       r(7, 20, 6, 3, C[8]); r(9, 24, 3, 3, C[0]); r(21, 24, 3, 3, C[0]); r(15, 28, 4, 1, C[0]);
@@ -705,6 +757,327 @@ export class Battlefield {
     this.pixelDiamond(orbX, orbY, orbR, color, C[9]);
   }
 
+  drawSummonSprite(summon, x, baseline, frame, event, progress) {
+    const g = this.ctx;
+    const lunge = (event && (event.type === 'summon_strike' || event.type === 'summon_relay') && !this.settings.reducedMotion)
+      ? Math.round(Math.sin((progress || 0) * Math.PI) * 16)
+      : (event && event.type === 'summon_counter' && !this.settings.reducedMotion)
+        ? Math.round(Math.sin((progress || 0) * Math.PI) * 8)
+        : (event && event.type === 'summon_hit' && !this.settings.reducedMotion && frame % 2)
+          ? -3
+          : 0;
+    const sx = x + lunge;
+    const r = (a, b, w, h, c) => { g.fillStyle = c; g.fillRect(sx + a - 12, baseline + b - 24, w, h); };
+    const bob = this.settings.reducedMotion ? 0 : [0, -1, 0, 1][frame % 4];
+    const elem = summon.element;
+    const elemImpact = ELEMENT_IMPACT[elem] || null;
+    const bodyColor = elemImpact ? elemImpact.secondary : C[12];
+    const highlight = elemImpact ? elemImpact.primary : C[14];
+    const coreColor = elemImpact ? elemImpact.core : C[31];
+    const rimColor = elemImpact ? elemImpact.rim : C[30];
+
+    // Summon shadow and aura
+    g.fillStyle = C[0]; g.fillRect(sx - 12, baseline - 1, 24, 3);
+    const auraColor = elementColor[elem] ?? C[28];
+    this.pixelEllipse(sx, baseline - 1, 12, 3, auraColor, false);
+
+    // Ambient floating elemental sparks
+    if (elem && !this.settings.reducedMotion) {
+      for (let i = 0; i < 3; i++) {
+        const px = sx - 10 + ((frame * 7 + i * 9) % 20);
+        const py = baseline - 8 - ((Math.floor(Date.now() / 120) + i * 5) % 18) + bob;
+        g.fillStyle = i % 2 ? rimColor : highlight;
+        g.fillRect(px, py, 2, 2);
+      }
+    }
+
+    // Creature-specific 16-bit pixel silhouettes across all 27 creatures
+    const cid = summon.creatureId;
+    if (cid === 'dog') {
+      r(14, 5 + bob, 7, 6, bodyColor);
+      r(12, 5 + bob, 3, 5, highlight);
+      r(15, 4 + bob, 3, 4, highlight);
+      r(19, 8 + bob, 4, 3, highlight);
+      r(22, 8 + bob, 2, 2, C[0]);
+      r(17, 7 + bob, 2, 2, coreColor);
+      r(13, 10 + bob, 3, 2, rimColor);
+      r(5, 9 + bob, 10, 8, bodyColor);
+      r(5, 17 + bob, 3, 7, bodyColor);
+      r(12, 17 + bob, 3, 7, bodyColor);
+      r(2, 6 + bob, 3, 4, highlight);
+      r(4, 9 + bob, 2, 3, bodyColor);
+    } else if (cid === 'bird') {
+      r(13, 5 + bob, 6, 6, bodyColor);
+      r(19, 7 + bob, 4, 2, rimColor);
+      r(16, 6 + bob, 2, 2, coreColor);
+      r(7, 9 + bob, 8, 8, bodyColor);
+      r(6, 10 + bob, 7, 5, highlight);
+      r(2, 12 + bob, 5, 4, highlight);
+      r(9, 17 + bob, 2, 4, rimColor);
+      r(12, 17 + bob, 2, 4, rimColor);
+    } else if (cid === 'cat') {
+      r(12, 2 + bob, 3, 4, highlight);
+      r(16, 2 + bob, 3, 4, highlight);
+      r(12, 5 + bob, 7, 6, bodyColor);
+      r(14, 7 + bob, 2, 2, rimColor);
+      r(17, 7 + bob, 2, 2, rimColor);
+      r(6, 10 + bob, 8, 7, bodyColor);
+      r(2, 7 + bob, 3, 2, highlight);
+      r(2, 9 + bob, 2, 6, bodyColor);
+      r(6, 17 + bob, 2, 7, bodyColor);
+      r(12, 17 + bob, 2, 7, bodyColor);
+    } else if (cid === 'snake') {
+      r(12, 4 + bob, 8, 7, highlight);
+      r(14, 5 + bob, 6, 5, bodyColor);
+      r(16, 6 + bob, 2, 2, coreColor);
+      r(20, 8 + bob, 4, 1, C[18]);
+      r(4, 12 + bob, 14, 5, bodyColor);
+      r(6, 16 + bob, 14, 5, highlight);
+      r(18, 18 + bob, 3, 3, rimColor);
+    } else if (cid === 'slime') {
+      r(4, 12 + bob, 16, 10, bodyColor);
+      r(6, 7 + bob, 12, 6, bodyColor);
+      r(9, 4 + bob, 6, 4, bodyColor);
+      r(8, 6 + bob, 3, 3, coreColor);
+      r(10, 13 + bob, 4, 4, rimColor);
+      r(8, 11 + bob, 2, 3, C[0]);
+      r(14, 11 + bob, 2, 3, C[0]);
+    } else if (cid === 'bat') {
+      r(0, 6 + bob, 8, 11, highlight);
+      r(16, 6 + bob, 8, 11, highlight);
+      r(8, 8 + bob, 8, 9, bodyColor);
+      r(8, 4 + bob, 3, 4, bodyColor);
+      r(13, 4 + bob, 3, 4, bodyColor);
+      r(10, 9 + bob, 2, 2, rimColor);
+      r(13, 9 + bob, 2, 2, rimColor);
+      r(10, 13 + bob, 1, 2, coreColor);
+      r(13, 13 + bob, 1, 2, coreColor);
+    } else if (cid === 'turtle') {
+      r(4, 8 + bob, 16, 11, bodyColor);
+      r(3, 17 + bob, 18, 3, highlight);
+      r(7, 10 + bob, 4, 4, highlight);
+      r(13, 10 + bob, 4, 4, highlight);
+      r(19, 11 + bob, 5, 5, bodyColor);
+      r(21, 12 + bob, 2, 2, coreColor);
+      r(5, 19 + bob, 4, 5, bodyColor);
+      r(13, 19 + bob, 4, 5, bodyColor);
+    } else if (cid === 'frog') {
+      r(6, 4 + bob, 4, 4, highlight);
+      r(14, 4 + bob, 4, 4, highlight);
+      r(8, 5 + bob, 2, 2, C[0]);
+      r(14, 5 + bob, 2, 2, C[0]);
+      r(5, 8 + bob, 14, 4, bodyColor);
+      r(6, 11 + bob, 12, 8, highlight);
+      r(2, 13 + bob, 4, 9, bodyColor);
+      r(18, 13 + bob, 4, 9, bodyColor);
+      r(7, 19 + bob, 3, 4, bodyColor);
+      r(14, 19 + bob, 3, 4, bodyColor);
+    } else if (cid === 'spider') {
+      r(9, 7 + bob, 6, 6, bodyColor);
+      r(6, 12 + bob, 12, 9, highlight);
+      r(10, 8 + bob, 2, 2, rimColor);
+      r(13, 8 + bob, 2, 2, rimColor);
+      r(0, 5 + bob, 4, 8, bodyColor);
+      r(20, 5 + bob, 4, 8, bodyColor);
+      r(1, 12 + bob, 4, 10, bodyColor);
+      r(19, 12 + bob, 4, 10, bodyColor);
+    } else if (cid === 'rat') {
+      r(17, 11 + bob, 4, 3, highlight);
+      r(20, 11 + bob, 2, 2, C[0]);
+      r(12, 6 + bob, 4, 4, highlight);
+      r(15, 6 + bob, 4, 4, highlight);
+      r(6, 10 + bob, 10, 8, bodyColor);
+      r(0, 16 + bob, 3, 2, highlight);
+      r(3, 14 + bob, 2, 4, highlight);
+      r(5, 16 + bob, 2, 2, bodyColor);
+      r(7, 18 + bob, 2, 5, bodyColor);
+      r(13, 18 + bob, 2, 5, bodyColor);
+    } else if (cid === 'wolf') {
+      r(12, 4 + bob, 8, 7, bodyColor);
+      r(11, 1 + bob, 3, 4, highlight);
+      r(15, 1 + bob, 3, 4, highlight);
+      r(18, 7 + bob, 6, 4, highlight);
+      r(14, 6 + bob, 2, 2, rimColor);
+      r(8, 7 + bob, 6, 8, highlight);
+      r(4, 10 + bob, 10, 8, bodyColor);
+      r(0, 11 + bob, 4, 8, highlight);
+      r(5, 17 + bob, 3, 7, bodyColor);
+      r(13, 17 + bob, 3, 7, bodyColor);
+    } else if (cid === 'bear') {
+      r(4, 5 + bob, 16, 13, bodyColor);
+      r(13, 3 + bob, 3, 3, highlight);
+      r(18, 3 + bob, 3, 3, highlight);
+      r(17, 8 + bob, 6, 5, highlight);
+      r(16, 7 + bob, 2, 2, coreColor);
+      r(5, 17 + bob, 5, 7, bodyColor);
+      r(14, 17 + bob, 5, 7, bodyColor);
+    } else if (cid === 'eagle') {
+      r(18, 7 + bob, 5, 4, rimColor);
+      r(14, 5 + bob, 3, 3, coreColor);
+      r(9, 3 + bob, 6, 4, highlight);
+      r(2, 7 + bob, 8, 11, highlight);
+      r(9, 8 + bob, 8, 9, bodyColor);
+      r(9, 18 + bob, 3, 5, rimColor);
+      r(14, 18 + bob, 3, 5, rimColor);
+    } else if (cid === 'boar') {
+      r(18, 9 + bob, 3, 4, coreColor);
+      r(19, 7 + bob, 2, 3, coreColor);
+      r(17, 10 + bob, 4, 4, highlight);
+      r(15, 8 + bob, 2, 2, rimColor);
+      r(6, 4 + bob, 10, 3, highlight);
+      r(4, 7 + bob, 13, 11, bodyColor);
+      r(5, 18 + bob, 3, 6, bodyColor);
+      r(13, 18 + bob, 3, 6, bodyColor);
+    } else if (cid === 'croc') {
+      r(13, 10 + bob, 10, 4, bodyColor);
+      r(15, 12 + bob, 7, 1, coreColor);
+      r(5, 7 + bob, 10, 3, highlight);
+      r(4, 9 + bob, 12, 8, bodyColor);
+      r(5, 17 + bob, 4, 6, bodyColor);
+      r(13, 17 + bob, 4, 6, bodyColor);
+      r(0, 12 + bob, 5, 5, highlight);
+    } else if (cid === 'skeleton') {
+      r(10, 2 + bob, 7, 6, coreColor);
+      r(12, 4 + bob, 2, 2, C[0]);
+      r(11, 8 + bob, 5, 7, coreColor);
+      r(11, 15 + bob, 5, 3, coreColor);
+      r(10, 18 + bob, 2, 6, coreColor);
+      r(14, 18 + bob, 2, 6, coreColor);
+      r(17, 4 + bob, 2, 8, coreColor);
+      r(17, 2 + bob, 6, 2, rimColor);
+    } else if (cid === 'hornet') {
+      r(2, 11 + bob, 8, 8, highlight);
+      r(4, 13 + bob, 2, 6, C[0]);
+      r(7, 12 + bob, 2, 5, C[0]);
+      r(1, 17 + bob, 3, 3, C[0]);
+      r(9, 10 + bob, 2, 4, bodyColor);
+      r(11, 7 + bob, 6, 6, bodyColor);
+      r(15, 7 + bob, 3, 3, rimColor);
+      r(7, 2 + bob, 7, 5, coreColor);
+      r(13, 1 + bob, 6, 5, coreColor);
+      r(11, 15 + bob, 2, 6, bodyColor);
+      r(14, 15 + bob, 2, 6, bodyColor);
+    } else if (cid === 'golem') {
+      r(2, 3 + bob, 20, 8, bodyColor);
+      r(4, 9 + bob, 16, 9, bodyColor);
+      r(10, 11 + bob, 4, 4, coreColor);
+      r(9, 5 + bob, 6, 2, rimColor);
+      r(0, 8 + bob, 4, 12, highlight);
+      r(20, 8 + bob, 4, 12, highlight);
+      r(5, 18 + bob, 5, 6, bodyColor);
+      r(14, 18 + bob, 5, 6, bodyColor);
+    } else if (cid === 'lion') {
+      r(9, 2 + bob, 11, 11, highlight);
+      r(13, 5 + bob, 5, 5, bodyColor);
+      r(15, 6 + bob, 2, 2, rimColor);
+      r(4, 9 + bob, 11, 8, bodyColor);
+      r(5, 17 + bob, 3, 7, bodyColor);
+      r(12, 17 + bob, 3, 7, bodyColor);
+      r(1, 9 + bob, 2, 7, bodyColor);
+      r(0, 8 + bob, 3, 3, highlight);
+    } else if (cid === 'siren') {
+      r(9, 2 + bob, 8, 8, highlight);
+      r(10, 7 + bob, 5, 6, bodyColor);
+      r(12, 5 + bob, 2, 2, coreColor);
+      r(6, 8 + bob, 4, 4, bodyColor);
+      r(15, 8 + bob, 4, 4, bodyColor);
+      r(7, 13 + bob, 9, 6, highlight);
+      r(4, 18 + bob, 14, 4, rimColor);
+      r(3, 16 + bob, 2, 2, coreColor);
+      r(18, 16 + bob, 2, 2, coreColor);
+    } else if (cid === 'gargoyle') {
+      r(10, 3 + bob, 6, 6, bodyColor);
+      r(9, 1 + bob, 2, 3, highlight);
+      r(15, 1 + bob, 2, 3, highlight);
+      r(11, 5 + bob, 2, 2, rimColor);
+      r(14, 5 + bob, 2, 2, rimColor);
+      r(4, 21 + bob, 16, 3, C[11]);
+      r(2, 4 + bob, 6, 12, highlight);
+      r(18, 4 + bob, 6, 12, highlight);
+      r(7, 18 + bob, 3, 4, bodyColor);
+      r(14, 18 + bob, 3, 4, bodyColor);
+    } else if (cid === 'sprite') {
+      r(11, 6 + bob, 4, 7, bodyColor);
+      r(12, 5 + bob, 2, 2, coreColor);
+      r(3, 2 + bob, 8, 9, coreColor);
+      r(14, 2 + bob, 8, 9, coreColor);
+      r(16, 7 + bob, 3, 3, rimColor);
+      r(8, 16 + bob, 2, 2, coreColor);
+      r(13, 17 + bob, 2, 2, rimColor);
+      r(10, 19 + bob, 2, 2, highlight);
+    } else if (cid === 'hydra') {
+      r(2, 3 + bob, 5, 4, highlight);
+      r(4, 6 + bob, 3, 6, bodyColor);
+      r(3, 4 + bob, 2, 2, rimColor);
+      r(10, 0 + bob, 5, 4, highlight);
+      r(11, 3 + bob, 3, 8, bodyColor);
+      r(12, 1 + bob, 2, 2, rimColor);
+      r(17, 3 + bob, 5, 4, highlight);
+      r(16, 6 + bob, 3, 6, bodyColor);
+      r(18, 4 + bob, 2, 2, rimColor);
+      r(4, 11 + bob, 16, 8, bodyColor);
+      r(5, 18 + bob, 4, 6, bodyColor);
+      r(14, 18 + bob, 4, 6, bodyColor);
+    } else if (cid === 'behemoth') {
+      r(2, 4 + bob, 20, 14, bodyColor);
+      r(20, 6 + bob, 4, 4, coreColor);
+      r(4, 2 + bob, 4, 3, highlight);
+      r(10, 2 + bob, 4, 3, highlight);
+      r(15, 2 + bob, 4, 3, highlight);
+      r(17, 7 + bob, 2, 2, rimColor);
+      r(3, 17 + bob, 6, 7, bodyColor);
+      r(14, 17 + bob, 6, 7, bodyColor);
+    } else if (cid === 'kraken') {
+      r(6, 2 + bob, 12, 9, bodyColor);
+      r(10, 7 + bob, 4, 3, rimColor);
+      r(11, 8 + bob, 2, 1, C[0]);
+      r(0, 9 + bob, 4, 12, highlight);
+      r(2, 12 + bob, 2, 2, coreColor);
+      r(5, 11 + bob, 3, 11, bodyColor);
+      r(10, 11 + bob, 3, 12, highlight);
+      r(15, 11 + bob, 3, 11, bodyColor);
+      r(19, 9 + bob, 4, 12, highlight);
+      r(20, 12 + bob, 2, 2, coreColor);
+    } else if (cid === 'dragon') {
+      r(12, 1 + bob, 3, 4, highlight);
+      r(16, 1 + bob, 3, 4, rimColor);
+      r(17, 6 + bob, 6, 4, highlight);
+      r(15, 5 + bob, 2, 2, rimColor);
+      r(0, 2 + bob, 9, 12, highlight);
+      r(8, 2 + bob, 4, 8, bodyColor);
+      r(9, 9 + bob, 7, 8, coreColor);
+      r(8, 17 + bob, 3, 7, bodyColor);
+      r(14, 17 + bob, 3, 7, bodyColor);
+      r(1, 13 + bob, 5, 5, highlight);
+    } else if (cid === 'phoenix') {
+      r(11, 0 + bob, 4, 5, rimColor);
+      r(17, 5 + bob, 4, 3, rimColor);
+      r(14, 4 + bob, 2, 2, coreColor);
+      r(0, 3 + bob, 9, 11, highlight);
+      r(15, 3 + bob, 8, 10, highlight);
+      r(9, 7 + bob, 7, 8, coreColor);
+      r(2, 15 + bob, 3, 9, rimColor);
+      r(6, 17 + bob, 3, 7, highlight);
+      r(9, 18 + bob, 2, 6, coreColor);
+    } else {
+      r(6, 4 + bob, 12, 16, bodyColor);
+      r(8, 6 + bob, 8, 12, highlight);
+      r(9, 8 + bob, 2, 2, coreColor);
+      r(13, 8 + bob, 2, 2, coreColor);
+      r(4, 10 + bob, 3, 8, bodyColor);
+      r(17, 10 + bob, 3, 8, bodyColor);
+    }
+
+    // Overhead HP Bar
+    const hpRatio = Math.max(0, Math.min(1, summon.hp / summon.maxHp));
+    const barW = 20;
+    const barX = sx - barW / 2;
+    const barY = baseline - 28 + bob;
+    g.fillStyle = C[0]; g.fillRect(barX - 1, barY - 1, barW + 2, 4);
+    g.fillStyle = C[18]; g.fillRect(barX, barY, barW, 2);
+    g.fillStyle = C[20]; g.fillRect(barX, barY, Math.round(barW * hpRatio), 2);
+  }
+
   draw(now) {
     const g = this.ctx;
     g.imageSmoothingEnabled = false;
@@ -780,7 +1153,7 @@ export class Battlefield {
       this.pixelEllipse(this.puddleX(Number(this.target.at(-1))), 150, 15, 4, elementColor.blackhole, false);
     }
 
-    const isCastingEvent = ['projectile', 'shield', 'heal', 'blast', 'fizzle', 'blackhole-open'].includes(event?.type)
+    const isCastingEvent = ['projectile', 'shield', 'shield-delay', 'heal', 'blast', 'fizzle', 'blackhole-open', 'timestop', 'ascension', 'summon', 'summon_invoke'].includes(event?.type)
       || (event?.type === 'damage' && event.element === 'death');
     const playerPose = isCastingEvent ? 'cast' : event?.type === 'attack' && impact && event.amount > 0 ? 'hurt' : this.state?.player.hp === 0 ? 'dead' : 'idle';
     g.fillStyle = C[0]; g.fillRect(38, 146, 27, 3);
@@ -790,16 +1163,8 @@ export class Battlefield {
     }
     this.sprite('wizard', 51 + (playerPose === 'hurt' && !this.settings.reducedMotion && frame % 2 ? -2 : 0), 147, frame, playerPose, null, progress);
 
-    const shield = this.state?.player.shield;
-    let protection = snap ? snap.protection : {
-      amount: shield?.layers.reduce((sum, hp) => sum + hp, 0) ?? 0,
-      layers: shield?.layers.length ?? 0,
-      element: shield?.effect,
-      layerEffects: shield?.layerEffects?.map(layer => layer.elements),
-      grand: Boolean(shield?.grand),
-      large: Boolean(shield?.large),
-    };
-    if (event?.type === 'shield') protection = event;
+    let protection = snap?.protection ?? shieldProtection(this.state?.player.shield);
+    if (event?.type === 'shield') protection = event.protection ?? event;
     if (event?.type === 'brace') protection = event.protection;
     if (event?.type === 'blast' && event.protection) protection = event.protection;
     const shieldHit = impact && event?.absorbed > 0;
@@ -811,14 +1176,16 @@ export class Battlefield {
       const shieldOpts = {
         grand: Boolean(protection.grand),
         large: Boolean(protection.large),
-        shieldKind: protection.shieldKind ?? protection.element ?? 'shield',
+        shieldKind: protection.shieldKind ?? protection.element ?? event?.shieldKind ?? 'shield',
         restored: Boolean(protection.restored),
       };
       const shieldScale = shieldOpts.grand ? 5 : shieldOpts.large ? 2 : 1;
-      if (protection.layers === 2 || front?.[1]) {
-        const outerW = Math.round(48 * shieldScale);
-        const outerTop = 148 - Math.round(49 * shieldScale);
-        this.barrier(51, outerTop, outerW, elementColor[secondaryElem] ?? C[26], false, secondaryElem, now, shieldCasting ? progress : 1, true, shieldOpts);
+      const outerLayers = Math.max(protection.layers - 1, front?.[1] ? 1 : 0);
+      for (let layer = outerLayers; layer > 0; layer--) {
+        const element = protection.layerEffects?.[layer]?.[0] ?? secondaryElem;
+        const outerW = Math.round((42 + 6 * layer) * shieldScale);
+        const outerTop = 148 - Math.round((45 + 4 * layer) * shieldScale);
+        this.barrier(51, outerTop, outerW, elementColor[element] ?? C[26], false, element, now, shieldCasting ? progress : 1, true, shieldOpts);
       }
       const shieldBroke = shieldHit && protection.layers > (event.protection?.layers ?? 0);
       const shieldImpact = shieldHit && protection.layers > 0 && event.type === 'attack' && !this.settings.reducedMotion
@@ -840,7 +1207,30 @@ export class Battlefield {
       this.barrierLabel(51, 79, shieldHit ? `กัน ${event.absorbed}${shieldBroke ? ` · ${shieldName}แตก` : ''}` : `${shieldName} ${protection.amount}`, shieldHit ? C[9] : C[8]);
     }
 
+    let activeSummon = playing && snap ? snap.summon : (this.state?.player?.summon || this.state?.summon);
+    if (event?.type === 'summon_invoke') {
+      activeSummon = {
+        creatureId: event.creature,
+        name: event.name || event.creature,
+        element: event.element,
+        isGrand: Boolean(event.isGrand),
+        hp: event.hp,
+        maxHp: event.maxHp ?? event.hp,
+      };
+    } else if (event?.type === 'summon_hit' && activeSummon) {
+      activeSummon = {
+        ...activeSummon,
+        hp: Math.max(0, event.hpRemaining ?? (activeSummon.hp - (event.damage ?? 0))),
+      };
+    } else if (event?.type === 'summon_rebirth' && activeSummon) {
+      activeSummon = { ...activeSummon, hp: event.hp ?? Math.ceil((activeSummon.maxHp ?? 1) / 2) };
+    }
+    if (activeSummon && (activeSummon.hp > 0 || event?.type === 'summon_hit')) {
+      this.drawSummonSprite(activeSummon, 88, 147, frame, event, progress);
+    }
+
     if (this.state) this.state.enemies.forEach((enemy, index) => {
+      const alternateArt = this.alternateEnemyIds?.has(enemy.id);
       const x = positions[index];
       let moveSlot;
       if (event?.type === 'swap' && event.source === enemy.id) moveSlot = event.sourceSlot;
@@ -872,11 +1262,13 @@ export class Battlefield {
       }
 
       const ward = snap ? (snap.wards[enemy.id] ?? enemy.ward) : enemy.ward;
-      const wardBroke = enemy.kind === 'elite' && event?.type === 'projectile' && event.target === enemy.id
-        && event.blocked && event.wardRemaining === 0 && impact;
-      const artProgress = wardBroke && !this.settings.reducedMotion ? Math.max(0, (progress - 0.65) / 0.35) : progress;
+      const wardHit = ward > 0 && impact && event?.target === enemy.id
+        && (event.type === 'dispel' || (event.type === 'projectile' && event.blocked));
+      const wardBroke = wardHit && event.wardRemaining === 0;
+      const wardProgress = this.settings.reducedMotion ? 0 : (progress - contactDelay / segment) / (1 - contactDelay / segment);
+      const artProgress = wardBroke ? wardProgress : progress;
       const supporting = enemy.kind === 'support' && event?.type === 'heal' && event.source === enemy.id;
-      const pose = gone ? 'dead' : wardBroke ? 'break' : attacking || supporting ? 'attack'
+      const pose = gone ? 'dead' : wardBroke && enemy.kind === 'elite' ? 'break' : attacking || supporting ? 'attack'
         : enemy.kind === 'prism_crab' ? (enemy.armor <= 1 ? 'exposed' : 'idle')
         : hurt ? 'hurt' : ['charger', 'sentinel', 'rune_golem', 'storm_titan'].includes(enemy.kind) && charging ? 'charge'
         : ['charger', 'sentinel', 'rune_golem', 'storm_titan'].includes(enemy.kind) && this.state.turn % 2 === 0 ? 'ready'
@@ -885,11 +1277,11 @@ export class Battlefield {
       if (attacking && lunge < -4 && !this.settings.reducedMotion) {
         g.save();
         g.globalAlpha = 0.28;
-        this.sprite(enemy.kind, x + Math.round(lunge * 0.45), 146, frame, 'attack', null, progress);
+        this.sprite(enemy.kind, x + Math.round(lunge * 0.45), 146, frame, 'attack', null, progress, alternateArt);
         g.restore();
       }
 
-      this.sprite(enemy.kind, spriteX, 146, gone ? deathFrame : frame, pose, hurt ? hurtElement : null, artProgress);
+      this.sprite(enemy.kind, spriteX, 146, gone ? deathFrame : frame, pose, hurt ? hurtElement : null, artProgress, alternateArt);
 
       if ((enemy.hp > 0 && !dead?.has(enemy.id)) && ward > 0) {
         const isLargeBoss = LARGE_BOSS_KINDS.has(enemy.kind);
@@ -897,16 +1289,14 @@ export class Battlefield {
           ? spriteFrame('elite', pose, frame, artProgress, this.settings.reducedMotion) : null;
         const wardX = bossArt ? Math.round(spriteX - bossArt.pivot[0] + bossArt.wardCenter[0]) : x;
         const top = bossArt ? Math.round(146 - bossArt.pivot[1] + bossArt.wardCenter[1] - 30) : isLargeBoss ? 74 : 103;
-        const contact = event?.type === 'projectile' && event.target === enemy.id && impact;
-        const blocked = contact && event.blocked;
-        const width = bossArt ? 50 : isLargeBoss ? 58 : 42;
-        if (!blocked || ward > 1) {
-          this.barrier(wardX, top, width, '#d6a2ff', false, 'ward', now, 1, false);
-        }
-        if (blocked) {
-          if (!this.settings.reducedMotion) this.drawWardImpact(wardX, top, width, ward === 1, (progress - 0.65) / 0.35);
-          this.barrierLabel(wardX, top - 6, wardLabel(event.wardRemaining), '#d6a2ff');
-        } else if (contact && event.form === 'beam') {
+        const width = this.enemyWardWidth(enemy);
+        const remaining = wardHit ? event.wardRemaining : ward;
+        if (remaining) this.drawEnemyWard(wardX, top, width, remaining);
+        if (wardHit) {
+          if (!this.settings.reducedMotion) this.drawWardImpact(wardX, top, width, wardBroke, wardProgress);
+          const label = event.type === 'dispel' ? `สลายม่าน −${event.amount} ชั้น` : wardLabel(remaining);
+          this.barrierLabel(wardX, top - 6, label, wardBroke ? '#f9eeff' : '#d6a2ff');
+        } else if (impact && event?.type === 'projectile' && event.target === enemy.id && event.form === 'beam') {
           this.barrierLabel(wardX, top - 6, 'ทะลุม่าน', '#d6a2ff');
         }
       }
@@ -998,10 +1388,16 @@ export class Battlefield {
     if (event) {
       const fraction = this.settings.reducedMotion ? 1 : progress;
       const x = eventX;
-      if (event.type === 'dispel' || event.type === 'seal' || event.type === 'ward-grant') {
+      if (event.type === 'shield-delay' || (event.type === 'shield' && event.delayed)) {
+        this.drawDelaySigil(51, event.delayed ? 91 : 109, progress, event.delayed);
+      }
+      if (['timestop', 'ascension', 'ascension-ready'].includes(event.type)) {
+        this.drawLegendarySigil(event.type, progress);
+      }
+      if (event.type === 'seal' || event.type === 'ward-grant') {
         const targetIndex = this.state.enemies.findIndex(enemy => enemy.id === event.target);
         const targetX = positions[targetIndex] ?? x;
-        const label = event.type === 'dispel' ? `สลายม่าน ${event.amount} ชั้น` : event.type === 'seal' ? 'ติดผนึก' : 'ม่านเทิร์นหน้า';
+        const label = event.type === 'seal' ? 'ติดผนึก' : 'ม่านเทิร์นหน้า';
         if (!this.settings.reducedMotion && event.type !== 'ward-grant') this.drawModifierVfx(event.type, targetX, 120, fraction, true);
         this.barrierLabel(targetX, 94, label, '#d6a2ff');
       }
@@ -1009,7 +1405,9 @@ export class Battlefield {
         const travel = Math.min(1, fraction / 0.65);
         const startX = 76;
         const startY = 120;
-        const px = Math.round(startX + (x - startX) * travel);
+        const target = event.blocked && ['shot', 'chakram', 'spear', 'axe'].includes(event.form)
+          ? x - this.enemyWardWidth(this.state.enemies[eventTargetIndex]) / 2 + 3 : x;
+        const px = Math.round(startX + (target - startX) * travel);
         const arcLift = event.form === 'shot' ? Math.sin(travel * Math.PI) * 16 : 0;
         const py = Math.round(startY - arcLift);
         const color = elementColor[event.element] ?? C[30];
@@ -1025,10 +1423,20 @@ export class Battlefield {
           this.drawWaveVfx(startX, x, color, secondColor, Boolean(event.elements?.[1]), travel, event.element, now, Boolean(event.grand), projScale);
         } else if (event.form === 'storm') {
           this.drawStormVfx(x, event.element, fraction, event.elements?.[1], now, Boolean(event.grand), projScale);
+        } else if (event.form === 'chakram') {
+          this.drawChakramVfx(startX, startY, target, px, py, travel, fraction, event, secondColor, now);
+        } else if (event.form === 'spear') {
+          this.drawSpearVfx(startX, startY, target, px, py, travel, fraction, event, secondColor, now);
+        } else if (event.form === 'axe') {
+          this.drawAxeVfx(px, py, color, impact, fraction, event.blocked);
         } else {
-          this.drawShotVfx(startX, startY, x, px, py, travel, fraction, event, secondColor, now);
+          this.drawShotVfx(startX, startY, target, px, py, travel, fraction, event, secondColor, now);
         }
         if (!this.settings.reducedMotion) {
+          if (event.lightPenalty && !impact) this.drawLightTrail(px, py, fraction);
+          if (event.lightPierce && impact && !event.blocked && event.damage?.amount > 0) {
+            this.drawLightTrail(target, 120, fraction, event.lightPierce);
+          }
           for (const modifier of event.visualModifiers ?? []) {
             if (travel < 1) this.drawModifierVfx(modifier, event.form === 'storm' ? x : px, event.form === 'storm' ? 110 : py, fraction, false);
           }
@@ -1135,22 +1543,116 @@ export class Battlefield {
         this.drawHealVfx(px, 146, fraction, now, event);
         if (event.source === 'player' && !this.settings.reducedMotion) this.drawHealingSigil(px, 146, fraction, event.healKind, vfxScale(event));
         const healEdge = event.healKind === 'grand' ? C[31] : event.source !== 'player' ? C[22] : C[26];
-        this.drawFloatingPopup(px, 96 - Math.round(fraction * 12), `+${event.amount} HP`, C[9], healEdge);
+        if (!this.hpNumbersInHud) this.drawFloatingPopup(px, 96 - Math.round(fraction * 12), `+${event.amount} HP`, C[9], healEdge);
+      }
+
+      if (event.type === 'buff') {
+        const px = 51;
+        const elem = event.element ?? event.families?.[0] ?? 'fire';
+        const pal = ELEMENT_IMPACT[elem] ?? ELEMENT_IMPACT.fire;
+        if (!this.settings.reducedMotion) {
+          const ringR = Math.round(10 + fraction * 14);
+          this.pixelCircle(px, 128, ringR, pal.primary, false, event.grand ? 3 : 2);
+          this.pixelCircle(px, 128, Math.max(4, ringR - 4), pal.core, false, 1);
+          for (let i = 0; i < 6; i++) {
+            const sy = 148 - Math.round(((fraction * 36 + i * 7) % 36));
+            const sx = px - 12 + i * 5;
+            this.ctx.fillStyle = i % 2 ? pal.core : pal.primary;
+            this.ctx.fillRect(sx, sy, 2, 4);
+          }
+        }
+        this.drawFloatingPopup(px, 92 - Math.round(fraction * 14), `+${event.pct}%`, pal.core, pal.primary);
       }
 
       if (event.type === 'attack') {
         this.drawEnemyAttackVfx(x, 51, fraction, impact, event, now);
         if (impact) {
-          if (event.ultimate) {
-            const ultTitle = event.sourceKind === 'tempest_archon' ? '⚡ อสุนีพิพากษา!' : '💥 พิพากษาเพลิง!';
+          if (event.ultimate && (!this.hpNumbersInHud || !event.amount)) {
+            const ultTitle = event.sourceKind === 'eternity_reborn'
+              ? '✨ ซูเปอร์โนวาดับจักรวาล!'
+              : event.sourceKind === 'eternity_overlord'
+                ? '🌌 คลื่นทำลายกาลอวกาศ!'
+                : event.sourceKind === 'tempest_archon'
+                  ? '⚡ อสุนีพิพากษา!'
+                  : event.sourceKind === 'volcano_colossus'
+                    ? '🌋 ภูเขาไฟพิโรธ!'
+                    : event.sourceKind === 'abyssal_kraken'
+                      ? '🌊 มหาคลื่นสึนามิบาดาล!'
+                      : event.sourceKind === 'nether_dread_lord'
+                        ? '💀 เปลวเพลิงนรกานต์พิพากษา!'
+                        : '💥 พิพากษาเพลิง!';
             const ultText = event.amount > 0 ? `${ultTitle} −${event.amount} HP` : `${ultTitle} ติดโล่!`;
-            const ultFg = event.sourceKind === 'tempest_archon' ? C[31] : C[30];
-            const ultEdge = event.sourceKind === 'tempest_archon' ? C[27] : C[19];
+            const isEternityUlt = event.sourceKind === 'eternity_overlord' || event.sourceKind === 'eternity_reborn';
+            const ultFg = isEternityUlt ? C[31] : event.sourceKind === 'abyssal_kraken' ? C[27] : event.sourceKind === 'tempest_archon' ? C[31] : event.sourceKind === 'nether_dread_lord' ? C[23] : C[30];
+            const ultEdge = isEternityUlt ? C[22] : event.sourceKind === 'abyssal_kraken' ? C[25] : event.sourceKind === 'tempest_archon' ? C[27] : event.sourceKind === 'nether_dread_lord' ? C[18] : C[19];
             this.drawFloatingPopup(51, 86 - Math.round((fraction - 0.5) * 18), ultText, ultFg, ultEdge);
-          } else if (event.amount > 0) {
+          } else if (event.amount > 0 && !this.hpNumbersInHud) {
             this.drawFloatingPopup(51, 94 - Math.round((fraction - 0.5) * 16), `−${event.amount} HP`, C[9], C[19]);
           }
+          if (event.manaDrain > 0) {
+            const drainIcon = event.sourceKind === 'eternity_reborn' ? '🌌' : '🐙';
+            this.drawFloatingPopup(51, 74 - Math.round((fraction - 0.5) * 14), `${drainIcon} −${event.manaDrain} MP`, C[23], C[20]);
+          }
         }
+      }
+
+      if (event.type === 'boss-phase') {
+        const wave = Math.sin(fraction * Math.PI);
+        const isNether = event.sourceKind === 'nether_dread_lord';
+        const isEternity = event.sourceKind === 'eternity_overlord' || event.sourceKind === 'eternity_reborn';
+        if (!this.settings.reducedMotion) {
+          if (isEternity) {
+            const isReborn = event.sourceKind === 'eternity_reborn' || event.mode === 'reborn';
+            const surgeH = Math.round(wave * (isReborn ? 58 : 48));
+            if (surgeH > 2) {
+              g.fillStyle = C[20]; g.fillRect(0, 150 - surgeH, 320, surgeH);
+              g.fillStyle = isReborn ? C[30] : C[22]; g.fillRect(0, 150 - Math.round(surgeH * 0.65), 320, Math.round(surgeH * 0.45));
+              g.fillStyle = C[31]; g.fillRect(0, 150 - surgeH, 320, 3);
+              g.fillStyle = C[9]; g.fillRect(0, 150 - surgeH + 1, 320, 1);
+            }
+            const cx = isReborn ? 208 : 160;
+            this.drawElementalImpactFlash(cx, 120, 'lightning', fraction, isReborn ? 2.2 : 1.7);
+            this.pixelCircle(cx, 120, Math.round(14 + fraction * 54), C[31], false, 2);
+            this.pixelCircle(cx, 120, Math.round(8 + fraction * 36), C[23], false, 1);
+            for (let i = 0; i < 8; i++) {
+              const ang = (i * Math.PI) / 4 + fraction * 1.4;
+              const d = Math.round(10 + fraction * 44);
+              this.pixelDiamond(Math.round(cx + Math.cos(ang) * d), Math.round(120 + Math.sin(ang) * d), 3, isReborn ? C[30] : C[23], C[9]);
+            }
+          } else if (isNether) {
+            const surgeH = Math.round(wave * 48);
+            if (surgeH > 2) {
+              g.fillStyle = C[20]; g.fillRect(0, 150 - surgeH, 320, surgeH);
+              g.fillStyle = C[18]; g.fillRect(0, 150 - Math.round(surgeH * 0.65), 320, Math.round(surgeH * 0.45));
+              g.fillStyle = C[23]; g.fillRect(0, 150 - surgeH, 320, 3);
+              g.fillStyle = C[31]; g.fillRect(0, 150 - surgeH + 1, 320, 1);
+            }
+            this.drawDeathVfx(160, 122, fraction, now);
+            this.pixelCircle(160, 122, Math.round(14 + fraction * 48), C[18], false, 2);
+            this.pixelCircle(160, 122, Math.round(8 + fraction * 32), C[23], false, 1);
+          } else {
+            const tideH = Math.round(wave * 44);
+            if (tideH > 2) {
+              g.fillStyle = C[24]; g.fillRect(0, 150 - tideH, 320, tideH);
+              g.fillStyle = C[25]; g.fillRect(0, 150 - Math.round(tideH * 0.7), 320, Math.round(tideH * 0.5));
+              g.fillStyle = C[27]; g.fillRect(0, 150 - tideH, 320, 3);
+              g.fillStyle = C[9]; g.fillRect(0, 150 - tideH + 1, 320, 1);
+            }
+            this.drawElementalImpactFlash(208, 126, 'water', fraction, 1.8);
+            this.pixelCircle(208, 126, Math.round(12 + fraction * 42), C[27], false, 2);
+            this.pixelCircle(208, 126, Math.round(6 + fraction * 28), C[9], false, 1);
+          }
+        }
+        const phasePopup = isEternity
+          ? (event.mode === 'reborn' || event.sourceKind === 'eternity_reborn'
+            ? '✨ เฟส 3: มหาเทพจุตินิรันดร์!'
+            : '🌌 เฟส 2: ร่างปฏิพากย์สลับธาตุ!')
+          : isNether
+            ? (event.mode === 'broken' ? '🔥 พันธสัญญาสามเสาแตก!' : '💀 จอมอสูรปลดผนึก!')
+            : '🐙 มหาคราเค่นปรากฏร่างจริง!';
+        const phaseFg = isEternity ? C[9] : isNether ? C[31] : C[9];
+        const phaseEdge = isEternity ? C[22] : isNether ? C[18] : C[25];
+        this.drawFloatingPopup(160, 72 - Math.round(fraction * 10), phasePopup, phaseFg, phaseEdge);
       }
 
       if (event.type === 'mirror-reflect') {
@@ -1163,7 +1665,7 @@ export class Battlefield {
         g.fillRect(rx - 2, ry - 2, 4, 4);
         if (impact) {
           this.drawElementalImpactFlash(51, 124, 'lightning', fraction);
-          this.drawFloatingPopup(51, 92 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `สะท้อน −${event.amount} HP` : 'สะท้อนติดโล่!', C[9], C[22]);
+          if (!this.hpNumbersInHud || !event.amount) this.drawFloatingPopup(51, 92 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `สะท้อน −${event.amount} HP` : 'สะท้อนติดโล่!', C[9], C[22]);
         }
       }
 
@@ -1176,7 +1678,7 @@ export class Battlefield {
         if (impact) {
           this.drawElementalImpactFlash(51, 124, 'blast', fraction);
           this.drawHitBurstVfx(51, 124, C[16], Math.min(1, (fraction - 0.55) / 0.45), 'fire', now);
-          this.drawFloatingPopup(51, 92 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `เกล็ดแมกมา −${event.amount} HP` : 'เกล็ดแมกมาติดโล่!', C[9], C[16]);
+          if (!this.hpNumbersInHud || !event.amount) this.drawFloatingPopup(51, 92 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `เกล็ดแมกมา −${event.amount} HP` : 'เกล็ดแมกมาติดโล่!', C[9], C[16]);
         }
       }
 
@@ -1189,7 +1691,37 @@ export class Battlefield {
         if (impact) {
           this.drawElementalImpactFlash(51, 124, 'lightning', fraction);
           this.drawHitBurstVfx(51, 124, C[31], Math.min(1, (fraction - 0.55) / 0.45), 'lightning', now);
-          this.drawFloatingPopup(51, 92 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `เกราะอสุนี −${event.amount} HP` : 'เกราะอสุนีติดโล่!', C[31], C[22]);
+          if (!this.hpNumbersInHud || !event.amount) this.drawFloatingPopup(51, 92 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `เกราะอสุนี −${event.amount} HP` : 'เกราะอสุนีติดโล่!', C[31], C[22]);
+        }
+      }
+
+      if (event.type === 'nether-curse') {
+        const travel = Math.min(1, fraction / 0.65);
+        const rx = Math.round(x + (51 - x) * travel);
+        const ry = Math.round(112 - Math.sin(travel * Math.PI) * 16);
+        this.pixelCircle(rx, ry, 6, C[20], true);
+        this.pixelDiamond(rx, ry, 4, C[18], C[23]);
+        if (impact) {
+          this.drawDeathVfx(51, 122, Math.min(1, (fraction - 0.55) / 0.45), now);
+          if (!this.hpNumbersInHud || !event.amount) {
+            this.drawFloatingPopup(51, 90 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `💀 คำสาปห้ามซ้ำ −${event.amount} HP` : '💀 คำสาปติดโล่!', C[23], C[18]);
+          }
+        }
+      }
+
+      if (event.type === 'cosmic-echo') {
+        const travel = Math.min(1, fraction / 0.65);
+        const rx = Math.round(x + (51 - x) * travel);
+        const ry = Math.round(112 - Math.sin(travel * Math.PI) * 14);
+        this.pixelBolt(x - 10, 112, rx, ry, now * 0.07, C[31], C[23]);
+        this.pixelDiamond(rx, ry, 5, C[22], C[31]);
+        this.pixelCircle(rx, ry, 2, C[9], true);
+        if (impact) {
+          this.drawElementalImpactFlash(51, 124, 'lightning', fraction);
+          this.drawHitBurstVfx(51, 124, C[31], Math.min(1, (fraction - 0.55) / 0.45), 'lightning', now);
+          if (!this.hpNumbersInHud || !event.amount) {
+            this.drawFloatingPopup(51, 90 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `🌌 สะท้อนดาราจักร −${event.amount} HP` : '🌌 สะท้อนติดโล่!', C[31], C[22]);
+          }
         }
       }
 
@@ -1225,13 +1757,29 @@ export class Battlefield {
 
       if (event.type === 'charge') {
         if (event.specialBoss) {
-          const isStorm = event.sourceKind === 'tempest_archon';
+          const isStorm = event.sourceKind === 'tempest_archon' || event.sourceKind === 'thunder_drake_emperor';
+          const isWater = event.sourceKind === 'abyssal_kraken';
+          const isNether = event.sourceKind === 'nether_dread_lord';
+          const isEternity = event.sourceKind === 'eternity_overlord' || event.sourceKind === 'eternity_reborn';
+          const chargeTitle = event.sourceKind === 'eternity_reborn'
+            ? '✨ รวบรวมดาราจักรดับสูญ!'
+            : event.sourceKind === 'eternity_overlord'
+              ? '🌌 รวบรวมพลังงานกาลอวกาศ!'
+              : isNether
+                ? '💀 รวบรวมเปลวเพลิงนรกานต์!'
+                : isWater
+                  ? '🌊 รวบรวมคลื่นห้วงบาดาล!'
+                  : isStorm
+                    ? '⚡ ชาร์จมหาพายุ!'
+                    : event.sourceKind === 'volcano_colossus'
+                      ? '🌋 หลอมแก่นแมกมา!'
+                      : '🔥 หลอมแก่นเพลิง!';
           this.drawFloatingPopup(
             x,
             84 - Math.round(fraction * 12),
-            isStorm ? '⚡ ชาร์จมหาพายุ!' : '🔥 หลอมแก่นเพลิง!',
-            isStorm ? C[31] : C[30],
-            isStorm ? C[27] : C[19],
+            chargeTitle,
+            isEternity ? C[9] : isNether ? C[23] : isWater ? C[27] : isStorm ? C[31] : C[30],
+            isEternity ? C[22] : isNether ? C[18] : isWater ? C[25] : isStorm ? C[27] : C[19],
           );
         } else {
           this.drawFloatingPopup(x, 94 - Math.round(fraction * 10), '⚡ ชาร์จพลัง!', C[31], C[29]);
@@ -1248,6 +1796,134 @@ export class Battlefield {
           }
         }
         this.drawFloatingPopup(75, 94 - Math.round(fraction * 10), fizzleLabel(event.cost), C[9], C[18]);
+      }
+
+      if (event.type === 'summon' || event.type === 'summon_invoke') {
+        const elem = event.element || 'fire';
+        const pal = ELEMENT_IMPACT[elem] || ELEMENT_IMPACT.fire;
+        const frac = this.settings.reducedMotion ? 1 : progress;
+        const circleR = Math.round(14 + frac * 8);
+        this.pixelEllipse(88, 147, circleR, Math.round(circleR * 0.35), pal.primary, false);
+        this.pixelEllipse(88, 147, Math.max(4, circleR - 4), Math.max(2, Math.round((circleR - 4) * 0.35)), pal.core, false);
+        if (!this.settings.reducedMotion) {
+          const pillarH = Math.round(Math.sin(frac * Math.PI) * 36);
+          g.save();
+          g.globalAlpha = 0.45 * Math.sin(frac * Math.PI);
+          g.fillStyle = pal.primary;
+          g.fillRect(88 - 12, 147 - pillarH, 24, pillarH);
+          g.fillStyle = pal.core;
+          g.fillRect(88 - 6, 147 - pillarH, 12, pillarH);
+          g.restore();
+          for (let i = 0; i < 6; i++) {
+            const ang = frac * 4 + i * 1.05;
+            const dist = 10 + i * 2;
+            const px = Math.round(88 + Math.cos(ang) * dist);
+            const py = Math.round(140 - frac * 20 + Math.sin(ang) * 4);
+            this.pixelDiamond(px, py, 2, pal.core, pal.primary);
+          }
+        }
+        if (event.name || event.creature) {
+          this.drawFloatingPopup(88, 108 - Math.round(frac * 16), `✨ อัญเชิญ ${event.name || event.creature}`, pal.core, pal.primary);
+        }
+      }
+
+      if (event.type === 'summon_strike' || event.type === 'summon_relay') {
+        const elem = event.element || 'strike';
+        const pal = ELEMENT_IMPACT[elem] || ELEMENT_IMPACT.blast;
+        const targetIndex = this.state.enemies.findIndex(e => e.id === event.target);
+        const targetX = positions[targetIndex] ?? 180;
+        const frac = this.settings.reducedMotion ? 1 : progress;
+        if (!this.settings.reducedMotion && frac > 0.25) {
+          const strikeFrac = (frac - 0.25) / 0.75;
+          this.drawElementalImpactFlash(targetX, 124, elem, strikeFrac, 1.2);
+          this.drawHitBurstVfx(targetX, 124, pal.primary, strikeFrac, elem, now, 1.2);
+          g.save();
+          g.strokeStyle = pal.core;
+          g.lineWidth = 2;
+          g.beginPath();
+          g.moveTo(targetX - 10, 114);
+          g.lineTo(targetX + 8, 134);
+          g.moveTo(targetX - 6, 112);
+          g.lineTo(targetX + 12, 132);
+          g.stroke();
+          g.restore();
+        }
+        if (event.blocked) {
+          this.drawFloatingPopup(targetX, 98 - Math.round(frac * 14), 'ม่านรับหมัดประสาน', pal.core, pal.primary);
+        } else if (event.amount > 0) {
+          const label = event.relay ? `🔄 สตรีคส่งไม้ต่อ −${event.amount}` : `⚔️ หมัดประสาน −${event.amount}`;
+          this.drawFloatingPopup(targetX, 98 - Math.round(frac * 14), label, pal.core, pal.primary);
+        }
+      }
+
+      if (event.type === 'summon_counter') {
+        const elem = event.element || 'strike';
+        const pal = ELEMENT_IMPACT[elem] || ELEMENT_IMPACT.blast;
+        const targetIndex = this.state.enemies.findIndex(e => e.id === event.target);
+        const targetX = positions[targetIndex] ?? 180;
+        const frac = this.settings.reducedMotion ? 1 : progress;
+        if (!this.settings.reducedMotion) {
+          this.pixelDiamond(88, 135, 3, pal.core, pal.primary);
+          if (frac > 0.2) {
+            this.drawHitBurstVfx(targetX, 124, pal.primary, frac, elem, now, 1);
+          }
+        }
+        if (event.blocked) {
+          this.drawFloatingPopup(targetX, 96 - Math.round(frac * 14), 'ม่านรับแรงสวน', pal.core, pal.primary);
+        } else if (event.amount > 0) {
+          this.drawFloatingPopup(targetX, 96 - Math.round(frac * 14), `⚡ ตีสวน −${event.amount}`, pal.core, pal.primary);
+        }
+      }
+
+      if (event.type === 'summon_rebirth') {
+        this.drawFloatingPopup(88, 94, 'ฟีนิกซ์เกิดใหม่', C[31], ELEMENT_IMPACT.fire.primary);
+      }
+
+      if (event.type === 'summon_break') {
+        const elem = event.element || 'earth';
+        const pal = ELEMENT_IMPACT[elem] || ELEMENT_IMPACT.earth;
+        const frac = this.settings.reducedMotion ? 1 : progress;
+        if (!this.settings.reducedMotion) {
+          for (let i = 0; i < 8; i++) {
+            const ang = (i / 8) * Math.PI * 2;
+            const dist = Math.round(frac * 24);
+            const px = Math.round(88 + Math.cos(ang) * dist);
+            const py = Math.round(135 + Math.sin(ang) * (dist * 0.6));
+            this.pixelDiamond(px, py, 2, pal.core, pal.primary);
+          }
+        }
+        this.drawFloatingPopup(88, 110 - Math.round(frac * 16), 'แตกสลาย!', pal.primary, pal.secondary);
+      }
+
+      if (event.type === 'summon_hit') {
+        const frac = this.settings.reducedMotion ? 1 : progress;
+        if (!this.settings.reducedMotion) {
+          this.drawHitBurstVfx(88, 132, C[18], frac, 'fire', now, 0.8);
+        }
+        if (event.damage > 0) {
+          this.drawFloatingPopup(88, 104 - Math.round(frac * 14), `−${event.damage}`, C[9], C[18]);
+        }
+      }
+
+      if (event.type === 'dodge' && event.target === 'summon') {
+        const frac = this.settings.reducedMotion ? 1 : progress;
+        this.drawFloatingPopup(88, 102 - Math.round(frac * 14), '💨 หลบพ้น!', C[9], C[27]);
+      }
+
+      if (event.type === 'ward_absorb' && event.target === 'summon') {
+        const frac = this.settings.reducedMotion ? 1 : progress;
+        this.drawFloatingPopup(88, 102 - Math.round(frac * 14), '🛡️ ม่านรับไว้!', '#f9eeff', '#b275f0');
+      }
+
+      if (event.type === 'summon_depart') {
+        const frac = this.settings.reducedMotion ? 1 : progress;
+        if (!this.settings.reducedMotion) {
+          for (let i = 0; i < 4; i++) {
+            const sx = 84 + i * 3;
+            const sy = 140 - Math.round(frac * 24 + i * 4);
+            this.pixelDiamond(sx, sy, 2, C[31], C[27]);
+          }
+        }
       }
     }
     g.restore();
@@ -1455,28 +2131,61 @@ export class Battlefield {
     g.save();
     g.globalAlpha = Math.sin(Math.PI * t) * 0.85;
     if (kind === 'blackhole') {
-      // Motes spiral inward toward the selected slot before the well persists.
-      for (let i = 0; i < 8; i++) {
-        const angle = i * Math.PI / 4 + t * 4;
-        const radius = (24 - t * 18) * s;
-        this.pixelDiamond(Math.round(x + Math.cos(angle) * radius), Math.round(y - 10 + Math.sin(angle) * radius * 0.55), Math.max(1, Math.round(s)), pal.primary, pal.core);
+      // Deep singularity core + accretion disk + inward curving graviton motes
+      const holeR = Math.max(4, Math.round((8 + Math.sin(t * Math.PI) * 4) * s));
+      this.pixelEllipse(x, y - 6, Math.round(holeR * 1.6), Math.round(holeR * 0.9), pal.secondary, false, Math.max(1, Math.round(s)));
+      this.pixelCircle(x, y - 6, holeR, '#05000d', true);
+      this.pixelCircle(x, y - 6, Math.max(2, holeR - Math.round(2 * s)), '#000000', true);
+      for (let i = 0; i < 12; i++) {
+        const angle = i * Math.PI / 6 + t * 5;
+        const radius = (28 - t * 22) * s;
+        const px = Math.round(x + Math.cos(angle) * radius);
+        const py = Math.round(y - 6 + Math.sin(angle) * radius * 0.55);
+        this.pixelDiamond(px, py, Math.max(1, Math.round(s)), i % 2 ? pal.primary : pal.core, pal.rim);
       }
     } else if (kind === 'meteor') {
-      // Scatter fragments from the impact rather than another circular glow.
-      this.pixelEllipse(x, 146, Math.round((10 + t * 22) * s), Math.max(2, Math.round(3 * s)), pal.secondary, false);
-      for (let i = 0; i < 7; i++) {
-        const dx = Math.round((i - 3) * (4 + t * 4) * s);
-        const dy = Math.round(Math.sin(t * Math.PI) * (7 + (i % 3) * 5) * s);
-        g.fillStyle = i % 2 ? pal.primary : pal.secondary;
-        g.fillRect(x + dx - 2, y - dy, Math.max(2, Math.round(4 * s)), Math.max(2, Math.round(3 * s)));
+      // Expanding volcanic impact shockwave on ground + arc ejecta + rising embers
+      this.pixelEllipse(x, 146, Math.round((12 + t * 30) * s), Math.max(3, Math.round(5 * s)), pal.secondary, false, Math.max(1, Math.round(s)));
+      this.pixelEllipse(x, 146, Math.round((6 + t * 18) * s), Math.max(2, Math.round(3 * s)), pal.primary, false);
+      for (let i = 0; i < 9; i++) {
+        const dir = (i - 4);
+        const arcX = Math.round(x + dir * (5 + t * 7) * s);
+        const arcY = Math.round(146 - Math.sin(t * Math.PI) * (14 + Math.abs(dir) * 3) * s);
+        g.fillStyle = i % 2 ? pal.primary : pal.core;
+        g.fillRect(arcX - Math.max(1, Math.round(s)), arcY, Math.max(2, Math.round(3 * s)), Math.max(2, Math.round(3 * s)));
+      }
+      for (let i = 0; i < 6; i++) {
+        const sparkX = Math.round(x + Math.sin(t * 5 + i * 1.5) * (10 + t * 15) * s);
+        const sparkY = Math.round(140 - t * 28 * s - (i % 3) * 6 * s);
+        this.pixelDiamond(sparkX, sparkY, i % 2 ? 2 : 1, pal.primary, pal.core);
       }
     } else if (kind === 'death') {
-      // A closing rune makes the execution distinct from elemental damage.
-      const radius = Math.round((19 - t * 10) * s);
-      this.pixelCircle(x, y, radius, pal.rim, false);
+      // Ominous closing runic ring with inward collapsing void sigil & spectral skull
+      const radius = Math.round((22 - t * 12) * s);
+      this.pixelCircle(x, y, radius, pal.rim, false, Math.max(1, Math.round(s)));
+      this.pixelCircle(x, y, Math.max(2, radius - Math.round(3 * s)), pal.primary, false);
+      const sw = Math.round(5 * s);
+      const sh = Math.round(6 * s);
+      // Skull brow & temples
+      g.fillStyle = pal.primary;
+      g.fillRect(x - sw, y - sh, sw * 2, Math.round(5 * s));
+      // Hollow glowing eye sockets
+      g.fillStyle = '#05000d';
+      g.fillRect(x - Math.round(3 * s), y - Math.round(3 * s), Math.max(1, Math.round(2 * s)), Math.max(1, Math.round(2 * s)));
+      g.fillRect(x + Math.round(s), y - Math.round(3 * s), Math.max(1, Math.round(2 * s)), Math.max(1, Math.round(2 * s)));
+      // Glowing eye embers
       g.fillStyle = pal.core;
-      g.fillRect(x - Math.round(s), y - Math.round(9 * s), Math.max(2, Math.round(2 * s)), Math.round(18 * s));
-      g.fillRect(x - Math.round(5 * s), y - Math.round(4 * s), Math.round(10 * s), Math.max(2, Math.round(2 * s)));
+      g.fillRect(x - Math.round(2 * s), y - Math.round(3 * s), 1, 1);
+      g.fillRect(x + Math.round(2 * s), y - Math.round(3 * s), 1, 1);
+      // Jaw and teeth
+      g.fillStyle = pal.secondary;
+      g.fillRect(x - Math.round(2 * s), y + Math.round(2 * s), Math.round(4 * s), Math.max(1, Math.round(2 * s)));
+      // Inward spiraling soul motes
+      for (let i = 0; i < 6; i++) {
+        const ang = i * Math.PI / 3 + t * 4;
+        const dist = (26 - t * 20) * s;
+        this.pixelDiamond(Math.round(x + Math.cos(ang) * dist), Math.round(y + Math.sin(ang) * dist * 0.7), Math.max(1, Math.round(s)), pal.primary, pal.core);
+      }
     } else {
       // The rising bands form a translucent curtain around the player.
       for (let i = 0; i < 5; i++) {
@@ -1839,6 +2548,117 @@ export class Battlefield {
     }
   }
 
+  drawChakramVfx(startX, startY, targetX, px, py, travel, fraction, event, secondColor, now) {
+    const g = this.ctx;
+    const elem = event.element ?? 'fire';
+    const pal = ELEMENT_IMPACT[elem] ?? ELEMENT_IMPACT.fire;
+    const dual = Boolean(event.elements?.[1]);
+    const scale = vfxScale(event);
+    const stroke = Math.min(4, scale);
+    const radius = Math.round((event.size > 1 ? 8 : 6) * scale);
+    if (travel < 1) {
+      for (let t = 1; t <= 6; t++) {
+        const trailT = Math.max(0, travel - t * 0.05);
+        const tx = Math.round(startX + (targetX - startX) * trailT);
+        const ty = Math.round(startY + Math.sin(now / 26 + t) * 2 * Math.min(2, scale));
+        const alpha = (1 - t / 7) * 0.7;
+        g.save();
+        g.globalAlpha = alpha;
+        this.pixelEllipse(tx, ty, Math.max(2, Math.round(radius * (1 - t * 0.08))), Math.max(1, Math.round(radius * 0.45)), t % 2 && dual ? secondColor : pal.primary, false, Math.max(1, stroke - 1));
+        g.restore();
+      }
+      const spin = this.settings.reducedMotion ? 0 : now * 0.038;
+      this.pixelCircle(px, py, radius + Math.max(1, Math.round(scale)), pal.secondary, false, stroke);
+      this.pixelCircle(px, py, radius, pal.primary, false, stroke);
+      this.pixelCircle(px, py, Math.max(2, Math.round(radius * 0.55)), pal.core, false, Math.max(1, Math.round(scale * 0.8)));
+      this.pixelDiamond(px, py, Math.max(2, Math.round(3 * Math.min(2, scale))), pal.rim, pal.core);
+      for (let i = 0; i < 8; i++) {
+        const angle = spin + (i * Math.PI) / 4;
+        const toothDist = radius + Math.round((i % 2 === 0 ? 4 : 2) * scale);
+        const bx = Math.round(px + Math.cos(angle) * toothDist);
+        const by = Math.round(py + Math.sin(angle) * toothDist);
+        const toothColor = dual && i % 2 ? secondColor : (i % 2 === 0 ? pal.rim : pal.primary);
+        this.pixelDiamond(bx, by, Math.max(1, Math.round((i % 2 === 0 ? 2.5 : 1.8) * Math.min(2.5, scale))), toothColor, pal.core);
+      }
+      if (event.grand) {
+        this.pixelCircle(px, py, radius + Math.round(4 * scale), C[31], false, stroke);
+      }
+      if (event.pierce) {
+        g.fillStyle = pal.core;
+        g.fillRect(px + radius, py - Math.max(1, Math.floor(scale / 2)), Math.round(8 * scale), Math.max(2, Math.round(2 * Math.min(2.5, scale))));
+      }
+    } else if (!event.blocked && event.damage?.amount > 0 && !this.settings.reducedMotion) {
+      const imp = Math.max(0, (fraction - 0.65) / 0.35);
+      const slashR = Math.round((10 + imp * 10) * scale);
+      g.save();
+      g.globalAlpha = Math.max(0, 1 - imp);
+      for (let step = -slashR; step <= slashR; step += Math.max(1, Math.round(scale))) {
+        g.fillStyle = pal.primary;
+        g.fillRect(targetX + step, 122 + step, Math.max(2, Math.round(2 * scale)), Math.max(2, Math.round(2 * scale)));
+        g.fillRect(targetX + step, 122 - step, Math.max(2, Math.round(2 * scale)), Math.max(2, Math.round(2 * scale)));
+        g.fillStyle = pal.core;
+        g.fillRect(targetX + step, 122 + step, Math.max(1, Math.round(scale)), Math.max(1, Math.round(scale)));
+        g.fillRect(targetX + step, 122 - step, Math.max(1, Math.round(scale)), Math.max(1, Math.round(scale)));
+      }
+      g.restore();
+      this.drawElementalImpactFlash(targetX, 122, elem, imp, scale);
+      this.drawHitBurstVfx(targetX, 122, pal.primary, imp, elem, now, scale);
+    }
+  }
+
+  drawSpearVfx(startX, startY, targetX, px, py, travel, fraction, event, secondColor, now) {
+    const g = this.ctx;
+    const elem = event.element ?? 'fire';
+    const pal = ELEMENT_IMPACT[elem] ?? ELEMENT_IMPACT.fire;
+    const dual = Boolean(event.elements?.[1]);
+    const scale = vfxScale(event);
+    const shaftLen = Math.round(24 * scale);
+    const tipLen = Math.round(9 * scale);
+    const thick = Math.max(2, Math.round(2.5 * Math.min(2.2, scale)));
+    if (travel < 1) {
+      // Speed streaks trailing behind the spear
+      for (let t = 1; t <= 4; t++) {
+        const tx = px - shaftLen - t * Math.round(7 * scale);
+        if (tx < startX) break;
+        g.save();
+        g.globalAlpha = (1 - t / 5) * 0.65;
+        g.fillStyle = t % 2 && dual ? secondColor : pal.primary;
+        g.fillRect(tx, py - Math.floor(thick / 2), Math.round(6 * scale), Math.max(1, thick - 1));
+        g.restore();
+      }
+      // Spear shaft
+      g.fillStyle = pal.secondary;
+      g.fillRect(px - shaftLen, py - Math.floor(thick / 2) - 1, shaftLen, thick + 2);
+      g.fillStyle = pal.primary;
+      g.fillRect(px - shaftLen, py - Math.floor(thick / 2), shaftLen, thick);
+      g.fillStyle = pal.core;
+      g.fillRect(px - shaftLen + 2, py, Math.max(4, shaftLen - 2), 1);
+      // Spear head / piercing blade
+      g.fillStyle = dual ? secondColor : pal.rim;
+      g.fillRect(px, py - thick, Math.max(2, Math.round(tipLen * 0.5)), thick * 2 + 1);
+      g.fillStyle = pal.core;
+      g.fillRect(px + Math.round(tipLen * 0.3), py - Math.max(1, thick - 1), Math.max(3, Math.round(tipLen * 0.7)), Math.max(2, (thick - 1) * 2 + 1));
+      g.fillRect(px + tipLen, py, Math.max(2, Math.round(3 * scale)), 1);
+      if (event.grand) {
+        g.fillStyle = C[31];
+        g.fillRect(px - shaftLen - 2, py - thick - 1, shaftLen + tipLen + 4, 1);
+        g.fillRect(px - shaftLen - 2, py + thick + 1, shaftLen + tipLen + 4, 1);
+      }
+    } else if (!event.blocked && event.damage?.amount > 0 && !this.settings.reducedMotion) {
+      const imp = Math.max(0, (fraction - 0.65) / 0.35);
+      const thrustLen = Math.round((16 + imp * 14) * scale);
+      g.save();
+      g.globalAlpha = Math.max(0, 1 - imp);
+      g.fillStyle = pal.primary;
+      g.fillRect(targetX - Math.round(thrustLen * 0.4), 120, thrustLen, Math.max(2, thick));
+      g.fillStyle = pal.core;
+      g.fillRect(targetX - Math.round(thrustLen * 0.3), 121, Math.round(thrustLen * 0.8), 1);
+      g.restore();
+      this.drawElementalImpactFlash(targetX, 122, elem, imp, scale);
+      this.drawHitBurstVfx(targetX, 122, pal.primary, imp, elem, now, scale);
+    }
+  }
+
   drawBeamVfx(startX, startY, targetX, element, secondColor, dual, fraction, now, event = null) {
     const g = this.ctx;
     const width = Math.max(0, targetX - startX);
@@ -1917,11 +2737,23 @@ export class Battlefield {
     }
 
     if (dual) {
-      g.fillStyle = secondColor;
-      for (let bx = startX; bx < targetX; bx += 8) {
-        const waveY = Math.round(Math.sin((bx + now * 0.25) * 0.18) * 5 * scale);
-        g.fillRect(bx, Math.max(0, startY + waveY - scale), Math.round(5 * Math.min(2.5, scale)), Math.max(3, Math.round(3 * scale)));
+      const step = Math.max(4, Math.round(6 * Math.min(2, scale)));
+      for (let bx = startX; bx < targetX; bx += step) {
+        const phase = (bx * 0.16 + now * 0.05);
+        const wave1 = Math.round(Math.sin(phase) * 5 * scale);
+        const wave2 = -wave1;
+        const strandW = Math.max(2, Math.round(3 * Math.min(2.5, scale)));
+        const strandH = Math.max(2, Math.round(2.5 * scale));
+        g.fillStyle = pal.primary;
+        g.fillRect(bx, Math.max(0, startY + wave1 - Math.floor(strandH / 2)), strandW, strandH);
+        g.fillStyle = secondColor;
+        g.fillRect(bx, Math.max(0, startY + wave2 - Math.floor(strandH / 2)), strandW, strandH);
+        if (Math.abs(wave1) < Math.round(1.5 * scale)) {
+          this.pixelDiamond(bx, startY, Math.max(1, Math.round(2 * Math.min(2, scale))), '#ffffff', pal.core);
+        }
       }
+      this.pixelCircle(targetX, startY, Math.round((9 + Math.sin(fraction * Math.PI) * 10) * scale), secondColor, false, stroke);
+      this.pixelDiamond(targetX, startY, Math.round(8 * Math.min(3, scale)), secondColor, '#ffffff');
     }
     const diamondStep = Math.round(14 * Math.min(2, scale));
     const diamondR = Math.round(3 * Math.min(3, scale));
@@ -2197,28 +3029,39 @@ export class Battlefield {
     const pal = ELEMENT_IMPACT.death;
     const f = Math.max(0, Math.min(1, fraction));
     g.save();
-    // Vertical execution pillar + sweeping crimson grim X-slash
-    if (f < 0.7) {
-      g.globalAlpha = Math.sin((f / 0.7) * Math.PI) * 0.7;
-      g.fillStyle = pal.secondary; g.fillRect(x - 10, 18, 20, 128);
-      g.fillStyle = pal.primary; g.fillRect(x - 4, 24, 8, 122);
-      g.fillStyle = pal.core; g.fillRect(x - 1, 30, 2, 116);
+    // 1. Vertical execution beam piercing from heavens into ground
+    if (f < 0.75) {
+      const beamAlpha = Math.sin((f / 0.75) * Math.PI) * 0.85;
+      g.globalAlpha = beamAlpha;
+      g.fillStyle = pal.secondary; g.fillRect(x - 12, 12, 24, 134);
+      g.fillStyle = pal.primary; g.fillRect(x - 5, 16, 10, 130);
+      g.fillStyle = pal.core; g.fillRect(x - 2, 20, 4, 126);
     }
-    g.globalAlpha = Math.max(0, 1 - f * 0.85);
-    const reach = Math.round(8 + Math.min(1, f * 1.8) * 18);
+    // 2. Twin grim scythe execution cross-slash
+    g.globalAlpha = Math.max(0, 1 - f * 0.88);
+    const reach = Math.round(10 + Math.min(1, f * 1.9) * 24);
     for (let s = -reach; s <= reach; s++) {
-      g.fillStyle = pal.secondary; g.fillRect(x + s - 2, y + s - 2, 4, 4);
-      g.fillStyle = pal.primary; g.fillRect(x + s - 1, y + s - 1, 2, 2);
-      g.fillStyle = pal.core; g.fillRect(x + s, y + s, 1, 1);
-      g.fillStyle = pal.primary; g.fillRect(x + s - 1, y - s - 1, 2, 2);
+      g.fillStyle = pal.secondary;
+      g.fillRect(x + s - 3, y + s - 3, 6, 6);
+      g.fillRect(x + s - 3, y - s - 3, 6, 6);
+      g.fillStyle = pal.primary;
+      g.fillRect(x + s - 1, y + s - 1, 3, 3);
+      g.fillRect(x + s - 1, y - s - 1, 3, 3);
+      g.fillStyle = pal.core;
+      g.fillRect(x + s, y + s, 1, 1);
+      g.fillRect(x + s, y - s, 1, 1);
     }
-    this.pixelCircle(x, y, Math.round(8 + f * 24), pal.primary, false);
-    this.pixelEllipse(x, 146, Math.round(14 + f * 16), 4, pal.secondary, false);
-    for (let i = 0; i < 8; i++) {
-      const ang = (i * Math.PI) / 4 + now * 0.002;
-      const sx = Math.round(x + Math.cos(ang) * (6 + f * 20));
-      const sy = Math.round(y + Math.sin(ang) * (6 + f * 20) - f * 12);
-      this.pixelDiamond(sx, sy, 2, pal.primary, pal.core);
+    // 3. Central death sigil & expanding void shockwaves
+    this.pixelCircle(x, y, Math.round(10 + f * 28), pal.primary, false, 2);
+    this.pixelCircle(x, y, Math.round(6 + f * 16), pal.rim, false, 1);
+    this.pixelEllipse(x, 146, Math.round(16 + f * 22), 5, pal.secondary, false, 2);
+    // 4. Rising soul wisps (harvested soul particles ascending)
+    for (let i = 0; i < 10; i++) {
+      const ang = (i * Math.PI) / 5 + now * 0.003;
+      const dist = Math.round(8 + f * 26);
+      const sx = Math.round(x + Math.cos(ang) * dist);
+      const sy = Math.round(y + Math.sin(ang) * dist * 0.6 - f * 24);
+      this.pixelDiamond(sx, sy, i % 2 ? 2 : 1, pal.primary, pal.core);
     }
     g.restore();
   }
@@ -2354,13 +3197,51 @@ export class Battlefield {
     const g = this.ctx;
     const isSpecial = Boolean(event.specialBoss);
     const isUltimate = Boolean(event.ultimate);
-    const isStormBoss = event.sourceKind === 'tempest_archon';
+    const isStormBoss = event.sourceKind === 'tempest_archon' || event.sourceKind === 'thunder_drake_emperor';
+    const isWaterBoss = event.sourceKind === 'abyssal_kraken';
+    const isNetherBoss = event.sourceKind === 'nether_dread_lord';
+    const isEternityBoss = event.sourceKind === 'eternity_overlord' || event.sourceKind === 'eternity_reborn';
+    const isInkTentacle = event.sourceKind === 'kraken_ink_tentacle';
 
     if (isUltimate) {
       if (fraction < 0.62) {
         const t = fraction / 0.62;
         const projX = Math.round(enemyX - 18 - (enemyX - 18 - (playerX + 10)) * t);
-        if (isStormBoss) {
+        if (isEternityBoss) {
+          // Golden-magenta cosmic supernova lance hurtling across space-time
+          for (let trail = 1; trail <= 7; trail++) {
+            const tx = Math.round(projX + trail * 10);
+            const r = Math.max(3, 13 - trail);
+            this.pixelCircle(tx, 118 + Math.round(Math.sin(now / 40 + trail) * 5), r, trail % 2 ? C[22] : C[30], true);
+          }
+          this.pixelCircle(projX, 118, 14, C[22], true);
+          this.pixelCircle(projX, 118, 10, C[30], true);
+          this.pixelDiamond(projX - 2, 118, 7, C[31], C[9]);
+          this.pixelBolt(enemyX - 16, 114, projX, 118, now * 0.08, C[31], C[23]);
+        } else if (isNetherBoss) {
+          // Sweeping crimson-violet underworld eclipse wave hurtling across arena
+          for (let trail = 1; trail <= 6; trail++) {
+            const tx = Math.round(projX + trail * 11);
+            const r = Math.max(3, 12 - trail);
+            this.pixelCircle(tx, 118 + Math.round(Math.sin(now / 45 + trail) * 4), r, trail % 2 ? C[20] : C[18], true);
+          }
+          this.pixelCircle(projX, 118, 13, C[20], true);
+          this.pixelCircle(projX, 118, 9, C[18], true);
+          this.pixelDiamond(projX - 2, 117, 5, C[23], C[31]);
+        } else if (isWaterBoss) {
+          // Towering crashing tsunami wave wall surging across the arena
+          const waveH = Math.round(28 + t * 22);
+          for (let trail = 0; trail <= 5; trail++) {
+            const tx = Math.round(projX + trail * 10);
+            const h = Math.max(8, waveH - trail * 5);
+            g.fillStyle = trail % 2 ? C[24] : C[25];
+            g.fillRect(tx - 6, 146 - h, 12, h);
+            g.fillStyle = C[27];
+            g.fillRect(tx - 7, 146 - h, 14, 3);
+          }
+          this.pixelCircle(projX - 4, 146 - waveH + 4, 7, C[26], true);
+          this.pixelCircle(projX - 6, 146 - waveH + 2, 4, C[9], true);
+        } else if (isStormBoss) {
           this.pixelBolt(enemyX - 16, 108, projX, 118, now * 0.08, C[31], C[9]);
           this.pixelBolt(enemyX - 16, 116, projX + 8, 124, now * 0.09 + 2, C[27], C[9]);
           this.pixelDiamond(projX, 118, 6, C[31], C[9]);
@@ -2381,7 +3262,64 @@ export class Battlefield {
       } else {
         const imp = Math.min(1, (fraction - 0.62) / 0.38);
         const hitX = event.absorbed > 0 ? playerX + 16 : playerX + 4;
-        if (isStormBoss) {
+        if (isEternityBoss) {
+          // Celestial Golden-Violet Supernova Pillar & Astral Starlight Burst
+          const colH = Math.round(Math.sin(imp * Math.PI) * 84);
+          if (colH > 3) {
+            g.fillStyle = C[21]; g.fillRect(hitX - 22, 147 - colH, 44, colH);
+            g.fillStyle = C[30]; g.fillRect(hitX - 15, 147 - colH + 3, 30, colH - 3);
+            g.fillStyle = C[31]; g.fillRect(hitX - 8, 147 - colH + 6, 16, Math.max(2, colH - 6));
+            g.fillStyle = C[9]; g.fillRect(hitX - 3, 147 - colH + 9, 6, Math.max(2, colH - 9));
+          }
+          this.drawElementalImpactFlash(hitX, 122, 'lightning', imp);
+          this.pixelCircle(hitX, 122, Math.round(12 + imp * 38), C[30], false);
+          this.pixelCircle(hitX, 122, Math.round(7 + imp * 26), C[23], false);
+          for (let i = 0; i < 12; i++) {
+            const ang = (i * Math.PI) / 6 + imp * 0.75;
+            const d = Math.round(8 + imp * 38);
+            const sx = Math.round(hitX + Math.cos(ang) * d);
+            const sy = Math.round(122 + Math.sin(ang) * d - imp * 10);
+            this.pixelDiamond(sx, sy, i % 2 === 0 ? 4 : 3, i % 2 === 0 ? C[31] : C[23], C[9]);
+          }
+        } else if (isNetherBoss) {
+          // Crimson-violet hellfire pillar & soul-reaping eclipse burst
+          const colH = Math.round(Math.sin(imp * Math.PI) * 74);
+          if (colH > 3) {
+            g.fillStyle = C[20]; g.fillRect(hitX - 20, 147 - colH, 40, colH);
+            g.fillStyle = C[18]; g.fillRect(hitX - 13, 147 - colH + 3, 26, colH - 3);
+            g.fillStyle = C[23]; g.fillRect(hitX - 7, 147 - colH + 6, 14, Math.max(2, colH - 6));
+            g.fillStyle = C[31]; g.fillRect(hitX - 2, 147 - colH + 10, 4, Math.max(2, colH - 10));
+          }
+          this.drawDeathVfx(hitX, 122, imp, now);
+          this.pixelCircle(hitX, 124, Math.round(10 + imp * 34), C[18], false);
+          this.pixelCircle(hitX, 124, Math.round(6 + imp * 24), C[23], false);
+          for (let i = 0; i < 12; i++) {
+            const ang = (i * Math.PI) / 6 + imp * 0.65;
+            const d = Math.round(8 + imp * 34);
+            const sx = Math.round(hitX + Math.cos(ang) * d);
+            const sy = Math.round(124 + Math.sin(ang) * d - imp * 10);
+            this.pixelDiamond(sx, sy, i % 2 === 0 ? 4 : 3, i % 2 === 0 ? C[18] : C[22], C[31]);
+          }
+        } else if (isWaterBoss) {
+          // Giant abyssal geyser & crashing tsunami foam burst
+          const colH = Math.round(Math.sin(imp * Math.PI) * 70);
+          if (colH > 3) {
+            g.fillStyle = C[24]; g.fillRect(hitX - 20, 147 - colH, 40, colH);
+            g.fillStyle = C[25]; g.fillRect(hitX - 14, 147 - colH + 3, 28, colH - 3);
+            g.fillStyle = C[27]; g.fillRect(hitX - 8, 147 - colH + 6, 16, Math.max(2, colH - 6));
+            g.fillStyle = C[9]; g.fillRect(hitX - 3, 147 - colH + 9, 6, Math.max(2, colH - 9));
+          }
+          this.drawElementalImpactFlash(hitX, 122, 'water', imp);
+          this.pixelCircle(hitX, 124, Math.round(10 + imp * 34), C[25], false);
+          this.pixelCircle(hitX, 124, Math.round(6 + imp * 24), C[27], false);
+          for (let i = 0; i < 12; i++) {
+            const ang = (i * Math.PI) / 6 + imp * 0.5;
+            const d = Math.round(8 + imp * 32);
+            const sx = Math.round(hitX + Math.cos(ang) * d);
+            const sy = Math.round(124 + Math.sin(ang) * d - imp * 10);
+            this.pixelCircle(sx, sy, i % 2 === 0 ? 3 : 2, i % 3 === 0 ? C[9] : C[27], true);
+          }
+        } else if (isStormBoss) {
           // Triple sky-to-ground thunderbolts crashing onto player
           this.pixelBolt(hitX, 0, hitX, 144, now * 0.09, C[31], C[9]);
           this.pixelBolt(hitX - 16, 0, hitX - 10, 146, now * 0.09 + 1.8, C[27], C[9]);
@@ -2426,7 +3364,26 @@ export class Battlefield {
       const t = fraction / 0.62;
       const waveX = Math.round(enemyX - 12 - (enemyX - 12 - (playerX + 16)) * t);
       if (isSpecial) {
-        if (isStormBoss) {
+        if (isEternityBoss) {
+          for (let dy = -12; dy <= 12; dy++) {
+            const curve = Math.round((dy * dy) / 10);
+            g.fillStyle = Math.abs(dy) < 4 ? C[9] : Math.abs(dy) < 8 ? C[31] : C[22];
+            g.fillRect(waveX + curve, 122 + dy, 6, 1);
+          }
+          this.pixelDiamond(waveX - 2, 122, 4, C[30], C[9]);
+        } else if (isNetherBoss) {
+          for (let dy = -12; dy <= 12; dy++) {
+            const curve = Math.round((dy * dy) / 10);
+            g.fillStyle = Math.abs(dy) < 4 ? C[23] : Math.abs(dy) < 8 ? C[18] : C[20];
+            g.fillRect(waveX + curve, 122 + dy, 6, 1);
+          }
+        } else if (isWaterBoss) {
+          for (let dy = -12; dy <= 12; dy++) {
+            const curve = Math.round((dy * dy) / 10);
+            g.fillStyle = Math.abs(dy) < 4 ? C[9] : Math.abs(dy) < 8 ? C[27] : C[25];
+            g.fillRect(waveX + curve, 122 + dy, 6, 1);
+          }
+        } else if (isStormBoss) {
           this.pixelBolt(enemyX - 14, 118, waveX, 122, now * 0.06, C[31], C[9]);
           this.pixelDiamond(waveX, 122, 4, C[31], C[27]);
         } else {
@@ -2436,6 +3393,10 @@ export class Battlefield {
             g.fillRect(waveX + curve, 122 + dy, 6, 1);
           }
         }
+      } else if (isInkTentacle && event.manaDrain > 0) {
+        this.pixelCircle(waveX, 122, 6, C[0], true);
+        this.pixelCircle(waveX, 122, 4, C[21], true);
+        this.pixelCircle(waveX - 1, 121, 2, C[23], true);
       } else {
         for (let dy = -8; dy <= 8; dy++) {
           const curve = Math.round((dy * dy) / 10);
@@ -2447,8 +3408,8 @@ export class Battlefield {
       const imp = Math.min(1, (fraction - 0.62) / 0.38);
       const hitX = event.absorbed > 0 ? playerX + 17 : playerX + 4;
       const slashColor = isSpecial
-        ? (isStormBoss ? C[31] : C[16])
-        : (event.absorbed > 0 ? C[27] : C[19]);
+        ? (isEternityBoss ? C[31] : isNetherBoss ? C[18] : isWaterBoss ? C[27] : isStormBoss ? C[31] : C[16])
+        : (isInkTentacle && event.manaDrain > 0 ? C[22] : event.absorbed > 0 ? C[27] : C[19]);
       for (let s = -10; s <= 10; s++) {
         g.fillStyle = slashColor;
         g.fillRect(hitX + s - 1, 122 + s - 1, 3, 3);
@@ -2459,7 +3420,9 @@ export class Battlefield {
       }
       this.pixelCircle(hitX, 122, Math.round((isSpecial ? 7 : 5) + imp * (isSpecial ? 18 : 13)), slashColor, false);
       if (isSpecial) {
-        this.drawElementalImpactFlash(hitX, 124, isStormBoss ? 'lightning' : 'fire', imp);
+        if (isEternityBoss) this.drawElementalImpactFlash(hitX, 124, 'lightning', imp);
+        else if (isNetherBoss) this.drawDeathVfx(hitX, 124, imp, now);
+        else this.drawElementalImpactFlash(hitX, 124, isWaterBoss ? 'water' : isStormBoss ? 'lightning' : 'fire', imp);
       }
     }
   }
@@ -2605,6 +3568,7 @@ export class Battlefield {
   }
 
   drawDamagePopup(x, fraction, event, color, labelLift = 0) {
+    if (this.hpNumbersInHud && event.amount > 0) return;
     if (event.amount === 0 && !this.settings.reducedMotion && fraction < 0.3) {
       this.pixelDiamond(x - 6, 121, 3, C[7], C[9]);
     }
@@ -2804,31 +3768,148 @@ export class Battlefield {
     this.drawFloatingPopup(x, y, label, C[9], color);
   }
 
+  drawLightTrail(x, y, progress, pierce = 0) {
+    const g = this.ctx;
+    g.save();
+    g.globalAlpha = pierce ? Math.max(0, (1 - progress) / 0.35) : 0.9;
+    if (pierce) {
+      for (let i = 0; i < pierce; i++) {
+        this.pixelDiamond(x + 6 + i * 5, y - 6 - i * 3, 2, '#93e6cc', '#edfff3');
+      }
+    } else {
+      g.fillStyle = '#edfff3';
+      g.fillRect(Math.round(x - 12), Math.round(y - 3), 9, 1);
+      g.fillStyle = '#93e6cc';
+      g.fillRect(Math.round(x - 18), Math.round(y + 2), 12, 1);
+      this.pixelDiamond(x - 5, y - 6, 2, '#93e6cc', '#edfff3');
+    }
+    g.restore();
+  }
+
+  drawAxeVfx(x, y, color, impact, progress, blocked) {
+    const g = this.ctx;
+    const stationary = this.settings.reducedMotion;
+    const drop = stationary ? 0 : Math.round(Math.sin(Math.min(1, progress / 0.65) * Math.PI) * 14);
+    x = Math.round(x);
+    y = Math.round(y) - drop;
+    if (impact && blocked) return;
+    g.save();
+    if (impact && !stationary) g.globalAlpha = Math.max(0, (1 - progress) / 0.35);
+    g.fillStyle = C[13];
+    for (let i = 0; i <= 11; i++) g.fillRect(x - 10 + i, y + 7 - i, 3, 2);
+    g.fillStyle = color;
+    g.fillRect(x - 3, y - 10, 9, 10);
+    g.fillRect(x + 6, y - 8, 3, 6);
+    g.fillStyle = C[9];
+    g.fillRect(x + 7, y - 7, 2, 4);
+    if (impact && !stationary) {
+      this.pixelCircle(x, y, Math.round(5 + (progress - 0.65) * 38), color, false);
+      this.pixelDiamond(x + 5, y + 2, 3, color, C[9]);
+    }
+    g.restore();
+  }
+
+  drawLegendarySigil(kind, progress) {
+    const g = this.ctx;
+    const still = this.settings.reducedMotion;
+    const stopped = kind === 'timestop';
+    const ready = kind === 'ascension-ready';
+    const color = stopped ? '#b8deff' : ready ? '#fff3af' : '#e5b7ff';
+    const x = stopped ? 165 : 51;
+    const y = stopped ? 83 : 103;
+    g.save();
+    if (stopped && !still) {
+      g.globalAlpha = 0.23 * Math.sin(progress * Math.PI);
+      g.fillStyle = '#76b3fc';
+      g.fillRect(0, 0, 320, 180);
+    }
+    g.globalAlpha = 1;
+    const radius = stopped ? 19 : 18;
+    this.pixelCircle(x, y, radius, color, false);
+    if (stopped) {
+      g.fillStyle = color;
+      g.fillRect(x - 1, y - 12, 2, 13);
+      g.fillRect(x, y - 1, 9, 2);
+    } else {
+      this.pixelDiamond(x, y, 7, color, C[9]);
+    }
+    const spread = still ? 2 : Math.round(progress * (ready ? 16 : 7));
+    for (let i = 0; i < 8; i++) {
+      const angle = i * Math.PI / 4;
+      this.pixelDiamond(Math.round(x + Math.cos(angle) * (radius + spread)), Math.round(y + Math.sin(angle) * (radius + spread)), 2, color, C[9]);
+    }
+    g.restore();
+  }
+
+  drawDelaySigil(x, y, progress, activated) {
+    const g = this.ctx;
+    const still = this.settings.reducedMotion;
+    const color = activated ? '#ecffe8' : '#ddbcff';
+    g.save();
+    g.fillStyle = '#252139';
+    g.fillRect(x - 7, y - 8, 14, 16);
+    g.fillStyle = color;
+    g.fillRect(x - 6, y - 7, 12, 2);
+    g.fillRect(x - 6, y + 5, 12, 2);
+    for (let i = 0; i < 5; i++) {
+      g.fillRect(x - i - 1, y - i - 1, 1, 1);
+      g.fillRect(x + i, y - i - 1, 1, 1);
+      g.fillRect(x - i - 1, y + i, 1, 1);
+      g.fillRect(x + i, y + i, 1, 1);
+    }
+    if (!activated) g.fillRect(x, y + (still ? 2 : Math.floor(progress * 4)), 1, 1);
+    if (!still) {
+      g.globalAlpha = Math.sin(progress * Math.PI);
+      this.pixelCircle(x, y, 12 + Math.floor(progress * (activated ? 12 : 4)), color, false);
+    }
+    g.restore();
+  }
+
+  enemyWardWidth(enemy) {
+    if (enemy?.kind === 'elite') return 50;
+    return LARGE_BOSS_KINDS.has(enemy?.kind) ? 58 : 42;
+  }
+
+  drawEnemyWard(x, top, width, layers) {
+    const g = this.ctx;
+    const pal = ELEMENT_IMPACT.ward;
+    this.barrier(x, top, width, pal.primary, false, 'ward');
+    for (let i = 0; i < layers; i++) {
+      const px = x + (i - (layers - 1) / 2) * 7;
+      this.pixelDiamond(px, 150, 2, pal.secondary, pal.rim);
+    }
+    g.fillStyle = pal.rim;
+    g.fillRect(Math.round(x - width / 2) + 2, 118, 2, 5);
+  }
+
   drawWardImpact(x, top, width, broke, progress) {
     const g = this.ctx;
     const pal = ELEMENT_IMPACT.ward;
     const radius = width / 2;
-    const p = Math.max(0, progress);
-    const y = Math.round((top + 148) / 2);
+    const p = Math.max(0, Math.min(1, progress));
+    const y = 120;
     const contact = x - radius + 3;
     g.save();
-    if (broke && p < 0.42) {
-      g.globalAlpha = 1 - p / 0.42;
-      this.barrier(x, top, width, pal.primary, false, 'ward', 0, 1, false);
-      g.globalAlpha = 1 - p / 0.42;
-      this.pixelBolt(contact, y, x + radius * 0.65, y - 9, 2, pal.secondary, pal.core);
-      this.pixelBolt(x - 4, y - 4, x + 5, top + 5, 4, pal.secondary, pal.core);
-      this.pixelBolt(x - 4, y - 4, x + 10, y + 14, 3, pal.secondary, pal.core);
+    if (p < 0.35) {
+      g.globalAlpha = 1 - p / 0.35;
+      this.pixelDiamond(contact, y, broke ? 8 : 5, pal.primary, pal.core);
+      if (broke) {
+        this.pixelBolt(contact, y, x + radius * 0.65, y - 9, 2, pal.secondary, pal.core);
+        this.pixelBolt(x - 4, y - 4, x + 5, top + 7, 4, pal.secondary, pal.core);
+        this.pixelBolt(x - 4, y - 4, x + 10, y + 14, 3, pal.secondary, pal.core);
+      }
     }
-    g.globalAlpha = 1 - p;
-    this.pixelCircle(contact, y, Math.round(4 + p * 16), pal.rim, false);
-    const count = broke ? 12 : 5;
+    g.globalAlpha = (1 - p) ** 1.4;
+    const travel = 1 - (1 - p) ** 2;
+    this.pixelCircle(contact, y, Math.round(4 + travel * (broke ? 19 : 12)), pal.rim, false);
+    const count = broke ? 12 : 4;
     for (let i = 0; i < count; i++) {
-      const angle = i * Math.PI * 2 / count;
-      const spread = p * (10 + (i * 7) % 15);
-      const sx = x + Math.cos(angle) * ((broke ? radius - 4 : 5) + spread) - (broke ? 0 : radius - 3);
-      const sy = y + Math.sin(angle) * ((broke ? (148 - top) * 0.37 : 6) + spread) + p * p * 14;
-      this.pixelDiamond(sx, sy, p < 0.56 && broke ? 3 : 1, pal.primary, pal.core);
+      const angle = broke ? i * Math.PI * 2 / count : Math.PI * (0.65 + i * 0.23);
+      const spread = travel * (9 + (i * 7) % 14);
+      const sx = (broke ? x : contact) + Math.cos(angle) * ((broke ? radius - 5 : 3) + spread);
+      const sy = y + Math.sin(angle) * ((broke ? (148 - top) * 0.38 : 3) + spread) + p * p * 11;
+      const size = broke && p < 0.65 ? 2 + i % 2 : 1;
+      this.pixelDiamond(sx, sy, size, pal.primary, pal.core);
     }
     g.restore();
   }

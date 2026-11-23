@@ -590,6 +590,58 @@ test('card filter controls filter forge and inventory cards by search, role, rar
   }
 });
 
+test('Sanctuary deck filter surface supports role-summon and live equipped/unequipped filtering', () => {
+  const html = cardFilterControls('deck');
+  assert.match(html, /value="role-summon"/);
+  assert.match(html, /value="unequipped"/);
+
+  const state = createRun('deck-filter-test', false);
+  const cards = [
+    { dataset: { filterCard: 'shot' }, hidden: false, getAttribute: a => (a === 'aria-pressed' ? 'true' : null) },
+    { dataset: { filterCard: 'summon' }, hidden: false, getAttribute: a => (a === 'aria-pressed' ? 'false' : null) },
+    { dataset: { filterCard: 'dog' }, hidden: false, getAttribute: a => (a === 'aria-pressed' ? 'false' : null) },
+    { dataset: { filterCard: 'fire' }, hidden: false, getAttribute: a => (a === 'aria-pressed' ? 'true' : null) },
+  ];
+  const count = { textContent: '' };
+  const empty = { hidden: true };
+  const controls = [
+    { dataset: { cardFilter: 'search' }, value: '' },
+    { dataset: { cardFilter: 'role' }, value: '' },
+    { dataset: { cardFilter: 'rarity' }, value: '' },
+    { dataset: { cardFilter: 'status' }, value: '' },
+  ];
+  const panel = {
+    dataset: { cardFilterPanel: 'deck' },
+    querySelectorAll: selector => selector === '[data-filter-card]' ? cards : selector === '[data-card-filter]' ? controls : [],
+    querySelector: selector => selector === '[data-card-filter-count]' ? count : selector === '[data-card-filter-empty]' ? empty : null,
+  };
+  const listeners = new Map();
+  const oldDoc = globalThis.document;
+  globalThis.document = { addEventListener: (type, fn) => listeners.set(type, fn) };
+  try {
+    bindCardFilters(() => state);
+    const dispatch = (control, value) => {
+      control.value = value;
+      listeners.get('change')({ target: { closest: sel => sel === '[data-card-filter]' ? { ...control, closest: s => s === '[data-card-filter-panel]' ? panel : null } : null } });
+    };
+    dispatch(controls[1], 'role-summon');
+    assert.deepEqual(cards.filter(c => !c.hidden).map(c => c.dataset.filterCard), ['summon', 'dog']);
+    assert.equal(count.textContent, 'แสดง 2 จาก 4 ใบ');
+
+    dispatch(controls[1], '');
+    dispatch(controls[3], 'unequipped');
+    assert.deepEqual(cards.filter(c => !c.hidden).map(c => c.dataset.filterCard), ['summon', 'dog']);
+
+    dispatch(controls[3], 'deck');
+    assert.deepEqual(cards.filter(c => !c.hidden).map(c => c.dataset.filterCard), ['shot', 'fire']);
+
+    listeners.get('click')({ target: { closest: sel => sel === '[data-card-filter-reset]' ? { closest: s => s === '[data-card-filter-panel]' ? panel : null } : null } });
+    assert.equal(count.textContent, 'แสดง 4 จาก 4 ใบ');
+  } finally {
+    globalThis.document = oldDoc;
+  }
+});
+
 test('renderWordBank renders button-based discard cards and alert banner during overflow', () => {
   const elements = {
     'hand-count': { textContent: '' },
@@ -733,14 +785,49 @@ test('Floors 46-50 final boss Loom Sovereign has authentic traits, no borrowed s
   assert.match(ENEMY_TRAITS.loom_sovereign.role, /ชั้น 50/);
 });
 
-test('dialog styling and discard-panel prevent stuck open modal on game startup', () => {
+test('dialog styling and discard-panel prevent stuck open modal and mobile collapse/offscreen bugs', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
   const styles = readFileSync(join(root, 'styles.css'), 'utf8');
   const battleUi = readFileSync(join(root, 'battle-ui.css'), 'utf8');
   const indexHtml = readFileSync(join(root, 'index.html'), 'utf8');
 
   assert.match(styles, /dialog:not\(\[open\]\)\s*\{\s*display:\s*none\s*!important\s*\}/);
+  assert.match(styles, /max-height:\s*calc\(100vh\s*-\s*40px\)/);
+  assert.match(styles, /\.discard-alert-banner button\s*\{[^}]*min-height:\s*44px/);
   assert.match(battleUi, /\.discard-sheet\[open\]/);
   assert.doesNotMatch(battleUi, /^\.discard-sheet\s*\{\s*[^}]*display:\s*flex/m);
+  assert.match(battleUi, /\.discard-sheet\[open\]\s*\{[^}]*inset:\s*0\s*!important;[^}]*margin:\s*auto\s*!important;[^}]*max-height:\s*86vh\s*!important;/s);
+  assert.match(battleUi, /\.discard-sheet \.sheet-panel\s*\{[^}]*flex:\s*1 1 auto;[^}]*min-height:\s*120px;/s);
+  assert.match(battleUi, /\.discard-sheet \.discard-card\s*\{[^}]*transform:\s*none;[^}]*backdrop-filter:\s*none;/s);
+  assert.match(battleUi, /@media \(max-width: 700px\)[\s\S]*\.discard-sheet #discard-cards\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(battleUi, /@media \(max-width: 700px\)[\s\S]*\.discard-sheet \.dialog-actions \.primary-button\s*\{[^}]*min-height:\s*48px/);
   assert.match(indexHtml, /id="close-discard-btn"/);
 });
+
+test('mobile battle-tools sheet (Bag and Grimoire) expands height, wraps safely without overflow, and enforces 44px touch targets', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const styles = readFileSync(join(root, 'styles.css'), 'utf8');
+  const battleUi = readFileSync(join(root, 'battle-ui.css'), 'utf8');
+  const indexHtml = readFileSync(join(root, 'index.html'), 'utf8');
+
+  assert.match(indexHtml, /<dialog id="battle-tools" class="game-sheet"/);
+  assert.match(indexHtml, /id="tools-tome" class="sheet-panel"/);
+  assert.match(indexHtml, /id="tools-bag" class="sheet-panel"/);
+
+  assert.match(battleUi, /\.sheet-panel\s*\{[^}]*flex:\s*1 1 0%;[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;[^}]*overflow-x:\s*hidden;/s);
+  assert.match(battleUi, /@media \(max-width: 700px\)[\s\S]*\.game-sheet:not\(\.discard-sheet\)\s*\{[^}]*height:\s*84vh;[^}]*height:\s*84dvh;/s);
+  assert.doesNotMatch(battleUi, /max-height:\s*min\(52dvh/);
+  assert.match(battleUi, /@media \(max-width: 700px\)[\s\S]*\.sheet-panel \.grimoire-list\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+  assert.match(battleUi, /@media \(max-width: 700px\)[\s\S]*\.sheet-panel \.grimoire-card-foot\s*\{[^}]*flex-direction:\s*column/s);
+  assert.match(battleUi, /@media \(max-width: 700px\)[\s\S]*\.sheet-panel \.grimoire-use-btn\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(battleUi, /@media \(max-width: 700px\)[\s\S]*\.sheet-panel \.guide-word\s*\{[^}]*grid-template-columns:\s*22px minmax\(0,\s*1fr\)/s);
+  assert.match(battleUi, /@media \(max-width: 700px\)[\s\S]*\.sheet-panel \.inventory-hero-stats\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(battleUi, /@media \(max-width: 700px\)[\s\S]*\.sheet-panel \.inventory-tabs\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(battleUi, /@media \(max-width: 700px\)[\s\S]*\.sheet-panel \.inv-stash-grid \.inv-slot-card\.filled\s*\{[^}]*grid-column:\s*1 \/ -1/s);
+  assert.match(battleUi, /@media \(max-width: 700px\)[\s\S]*\.sheet-panel \.inv-slot-actions button\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(battleUi, /@media \(max-width: 900px\) and \(max-height: 540px\)[\s\S]*\.game-sheet:not\(\.discard-sheet\)\s*\{[^}]*height:\s*calc\(100dvh - 16px\)/s);
+  assert.match(styles, /\.inv-empty-run\{[^}]*grid-column:1 \/ -1/);
+  assert.match(styles, /\.inv-stash-grid\{[^}]*minmax\(min\(100%,185px\),1fr\)/);
+});
+
+

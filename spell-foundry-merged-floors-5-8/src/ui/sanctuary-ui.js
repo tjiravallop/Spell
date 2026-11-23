@@ -7,25 +7,38 @@ import {
   CARD_SECONDARY_UNLOCK_LEVEL,
   RELIC_DRAFT_CATALOG,
   getAvailableShopItems,
+  buyShopItem,
   getEquippedRelics,
+  getMaxMana,
   getCardUpgradeLevel,
+  deckCapacity,
   hasCardSecondaryUpgrade,
   getCardUpgradeCost,
   getCardUpgradeSuccessRate,
-  getCardSecondaryTier,
+  getCardUpgradeMaterial,
+  upgradeWordCard,
+  SHOP_ITEMS,
   getCardSecondaryEffect,
   describeCardUpgradeEffect,
   getFloorInfo,
-  FLOOR5_START_ROOM,
-  FLOOR11_START_ROOM,
-  FLOOR15_START_ROOM,
-  UPPER_RESTS,
-  isSanctuaryUnlocked,
   isSanctuaryFloorUnlocked,
-  getSanctuaryNextRoom,
+  getSanctuaryCheckpoints,
+  getSanctuaryContinueRoom,
   restAtSanctuary,
   updateSanctuaryLoadout,
+  getSanctuaryDeckPresets,
+  saveSanctuaryDeckPreset,
+  applySanctuaryDeckPreset,
+  deleteSanctuaryDeckPreset,
   ENEMIES,
+  RIFT_TIERS,
+  isRiftUnlocked,
+  isRiftTierUnlocked,
+  getRiftDailyStatus,
+  getRiftStageRooms,
+  getRiftRewardPool,
+  rewardRarityRates,
+  ownsRewardWord,
 } from '../run.js';
 import { icon } from '../icons.js';
 import { getSanctuaryStory } from '../story.js';
@@ -34,13 +47,122 @@ import { cardFilterControls, applyCardFilters } from './card-filters.js';
 import {
   $,
   escape,
-  upperCheckpoint,
-  checkpointFloor,
+  restLocationLabel,
   cardMeta,
   rarityClass,
   playingCardFace,
   queueFxClassRestart,
+  preserveFocus,
 } from './dom.js';
+
+let forgeWord = START_WORDS[0];
+let forgeResult = null;
+let forgeImpactTimer = 0;
+
+function renderForge(state) {
+  const { player } = state;
+  const list = $('sanctuary-upgrade-list');
+  const owned = [...new Set([...START_WORDS, ...state.collection, ...player.words])];
+  if (!owned.includes(forgeWord)) forgeWord = owned[0];
+  const scroll = list.scrollTop;
+  list.innerHTML = owned.map(id => {
+    const level = getCardUpgradeLevel(state, id);
+    return `<button id="forge-choice-${id}" type="button" class="forge-choice ${rarityClass(WORDS[id])}" data-forge-word="${id}" data-filter-card="${id}" aria-pressed="${id === forgeWord}">${icon(id)}<span>${escape(WORDS[id].label)}</span><small>+${level}</small></button>`;
+  }).join('');
+  const filters = $('sanctuary-card-filters');
+  if (!filters.firstElementChild) filters.innerHTML = cardFilterControls('forge');
+  applyCardFilters($('sanctuary-upgrade-panel'), state);
+  list.scrollTop = scroll;
+
+  const word = WORDS[forgeWord];
+  const level = getCardUpgradeLevel(state, forgeWord);
+  const maxed = level >= MAX_CARD_UPGRADE;
+  const next = Math.min(MAX_CARD_UPGRADE, level + 1);
+  const material = getCardUpgradeMaterial(player);
+  const goldCost = getCardUpgradeCost(level, forgeWord);
+  const affordable = player.gold >= goldCost;
+  const chance = getCardUpgradeSuccessRate(level, Boolean(material), material?.bonus, forgeWord);
+  const secondary = hasCardSecondaryUpgrade(state, forgeWord);
+  const secondaryInfo = getCardSecondaryEffect(forgeWord, Math.max(CARD_SECONDARY_UNLOCK_LEVEL, level));
+
+  $('forge-stage-card').className = `forge-stage-card ${rarityClass(word)}`;
+  $('forge-stage-card').innerHTML = `${icon(forgeWord)}<span>+${level}</span>`;
+  $('forge-word-name').textContent = word.label;
+  $('forge-level-change').textContent = maxed ? `เต็มระดับ +${level}` : `+${level} → +${next}`;
+  $('forge-next-effect').textContent = describeCardUpgradeEffect(forgeWord, next);
+  $('forge-terms').hidden = maxed;
+  $('forge-chance').textContent = `${chance}%`;
+  const materialName = material ? (SHOP_ITEMS[material.id]?.name || 'วัตถุดิบตีบวก') : null;
+  $('forge-cost').textContent = material ? `${goldCost} ทอง + ${materialName}` : `${goldCost} ทอง`;
+  $('sanctuary-forge-gold').textContent = `${player.gold} ทอง`;
+  $('forge-secondary-title').textContent = secondary ? `เอฟเฟกต์รอง · ${secondaryInfo.label}` : `เอฟเฟกต์รอง · ปลดที่ +${CARD_SECONDARY_UNLOCK_LEVEL}`;
+  $('forge-secondary-description').textContent = secondaryInfo.description;
+
+  const button = $('forge-upgrade-btn');
+  button.disabled = maxed || !affordable;
+  button.setAttribute('aria-disabled', String(Boolean(forgeImpactTimer) || button.disabled));
+  button.textContent = maxed ? 'ตีบวกเต็มแล้ว' : affordable ? `ตีบวกเป็น +${next}` : `ขาดอีก ${goldCost - player.gold} ทอง`;
+  const result = $('forge-result');
+  const attempt = forgeResult?.wordId === forgeWord ? forgeResult : null;
+  const outcome = forgeImpactTimer ? 'pending' : attempt?.failed ? 'fail' : attempt ? 'success' : 'idle';
+  $('forge-stage').dataset.outcome = outcome;
+  result.dataset.outcome = outcome;
+  if (forgeImpactTimer) {
+    result.textContent = 'กำลังตีบวก…';
+  } else if (attempt) {
+    const effect = attempt.milestoneUnlocked && attempt.secondaryEffect ? ` · ${attempt.secondaryEffect.label}` : '';
+    result.textContent = attempt.failed
+      ? `ตี +${attempt.attemptedLevel} พลาด · คงระดับ +${attempt.newLevel}`
+      : `ตีบวกสำเร็จ · +${attempt.newLevel}${effect}`;
+  } else {
+    result.textContent = 'ถ้าตีพลาด ระดับจะคงเดิม';
+  }
+}
+
+let selectedShopItem = null;
+let shopCategory = 'all';
+
+function renderShop(state) {
+  const { player } = state;
+  const catalog = getAvailableShopItems(state);
+  const list = $('sanctuary-shop-list');
+  const query = $('shop-search').value.trim().toLocaleLowerCase();
+  const visible = catalog.filter(item => {
+    const category = item.vaultOnly ? 'forge' : item.hpRestore || item.manaRestore ? 'restore' : 'battle';
+    return (shopCategory === 'all' || shopCategory === category)
+      && (!query || item.name.toLocaleLowerCase().includes(query));
+  });
+  const sold = state.purchasedShopItems.includes(selectedShopItem);
+  const item = sold ? SHOP_ITEMS[selectedShopItem] : visible.find(candidate => candidate.id === selectedShopItem) ?? visible[0];
+  selectedShopItem = item?.id ?? null;
+  const scroll = list.scrollTop;
+  list.innerHTML = visible.map(candidate =>
+    `<button id="shop-choice-${candidate.id}" class="shop-choice" type="button" data-shop-choice="${candidate.id}" aria-pressed="${candidate.id === selectedShopItem}"><span class="shop-choice-icon" aria-hidden="true">${escape(candidate.icon)}</span><span>${escape(candidate.name)}</span><small>${candidate.cost} ทอง</small></button>`
+  ).join('');
+  list.scrollTop = scroll;
+  for (const button of $('shop-categories').querySelectorAll('button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.shopCategory === shopCategory));
+  }
+  $('shop-empty').hidden = visible.length > 0;
+  $('shop-empty').textContent = catalog.length ? 'ไม่พบสินค้า ลองเปลี่ยนคำค้นหรือหมวดสินค้า' : 'สินค้าหมดแล้ว';
+  $('shop-detail-content').hidden = !item;
+  if (!item) return;
+
+  const beltSpace = !item.vaultOnly && player.items.length < MAX_BELT_ITEMS;
+  const hasSpace = beltSpace || player.stash.length < MAX_STASH_ITEMS;
+  const shortfall = item.cost - player.gold;
+  $('shop-item-icon').textContent = item.icon;
+  $('shop-item-name').textContent = item.name;
+  $('shop-item-description').textContent = item.description;
+  $('shop-item-stock').textContent = sold ? 'ซื้อครบแล้ว' : item.oneTime ? 'จำกัด 1 ชิ้น' : 'ซื้อซ้ำได้';
+  $('shop-item-destination').hidden = sold;
+  $('shop-item-destination').textContent = hasSpace
+    ? (beltSpace ? 'เก็บเข้าเข็มขัด' : 'เก็บเข้าคลังสำรอง')
+    : item.vaultOnly ? 'คลังสำรองเต็ม' : 'กระเป๋าเต็ม';
+  const buy = $('shop-buy-btn');
+  buy.disabled = sold || !hasSpace || shortfall > 0;
+  buy.textContent = sold ? 'ซื้อแล้ว' : !hasSpace ? 'ไม่มีช่องเก็บ' : shortfall > 0 ? `ขาดอีก ${shortfall} ทอง` : `ซื้อ · ${item.cost} ทอง`;
+}
 
 export function renderSanctuaryTravel(state) {
   const select = $('sanctuary-floor-select');
@@ -55,16 +177,10 @@ export function renderSanctuaryTravel(state) {
     floors.get(info.floor).push({ index, info, enemies });
   });
 
-  const allPossibleRests = [];
-  for (let d = 0; d < 5; d++) {
-    const mid = d * 10 + 5;
-    const boss = (d + 1) * 10;
-    allPossibleRests.push([mid, `จุดพักชั้น ${mid}`, isSanctuaryFloorUnlocked(state, mid)]);
-    allPossibleRests.push([`pre${boss}`, `จุดพักก่อนบอสใหญ่ ${boss}`, isSanctuaryFloorUnlocked(state, `pre${boss}`)]);
-    allPossibleRests.push([`post${boss}`, `จุดพักหลังบอสใหญ่ ${boss}`, isSanctuaryFloorUnlocked(state, `post${boss}`)]);
-  }
   const currentSanctuary = state.sanctuaryFloor ?? 5;
-  const rests = allPossibleRests.filter(([floor, , unlocked]) => unlocked && floor !== currentSanctuary);
+  const rests = getSanctuaryCheckpoints(state)
+    .filter(floor => floor !== currentSanctuary && isSanctuaryFloorUnlocked(state, floor))
+    .map(floor => [floor, restLocationLabel(floor)]);
   const floorOptions = [...floors.keys()].reverse().map(floor =>
     `<option value="floor-${floor}">ชั้น ${floor}</option>`).join('');
   const restOptions = rests.map(([floor, label]) =>
@@ -96,6 +212,68 @@ export function renderSanctuaryTravel(state) {
       <span class="sanctuary-room-enemies">${escape(names)}</span>
     </button>`;
   }).join('')}</div>` : '';
+}
+
+export function renderRiftPanel(state) {
+  const list = $('rift-tier-list');
+  if (!list || !state) return;
+  const status = getRiftDailyStatus(state);
+  const pill = $('rift-quota-pill');
+  if (pill) {
+    pill.textContent = `${status.remaining} / ${status.cap} รอบ`;
+    pill.classList.toggle('is-empty', status.remaining <= 0);
+  }
+  const sub = $('rift-quota-sub');
+  if (sub) {
+    sub.textContent = `ผ่านหอคอยสูงสุดชั้น ${status.cap} (ได้ ${status.cap} รอบ/วัน · ใช้ไปแล้ว ${status.used}) · ผ่านชั้นเพิ่มในวันนี้รับรอบเพิ่มทันที`;
+  }
+  list.innerHTML = RIFT_TIERS.map(tier => {
+    const unlocked = isRiftTierUnlocked(state, tier);
+    const stageRooms = getRiftStageRooms(tier);
+    const stageLabels = [`${tier - 2}-3`, `${tier - 1}-3`, `บอส ${tier}★`];
+    const stagesHtml = stageRooms.map((roomIdx, idx) => {
+      const enemyKinds = state.rooms?.[roomIdx] ?? [];
+      const names = enemyKinds.map(kind => ENEMIES[kind]?.name ?? kind).join(' · ');
+      return `<li><b>ด่าน ${idx + 1} (${stageLabels[idx]})</b><span>${escape(names)}</span></li>`;
+    }).join('');
+    const pool = getRiftRewardPool(state, tier);
+    const unowned = pool.filter(id => !ownsRewardWord(state, id)).length;
+    const rates = rewardRarityRates(tier);
+    const canEnter = unlocked && status.remaining > 0;
+    const btnText = !unlocked
+      ? `🔒 ผ่านบอสชั้น ${tier} เพื่อปลดล็อก`
+      : status.remaining <= 0
+        ? `โควต้าวันนี้หมดแล้ว (${status.remaining}/${status.cap})`
+        : `🌀 เข้ารอยแยกชั้น ${tier} (−1 รอบ)`;
+    return `<article class="rift-tier-card ${unlocked ? 'is-unlocked' : 'is-locked'}" data-rift-tier-card="${tier}">
+      <div class="rift-tier-head">
+        <strong>รอยแยกชั้น ${tier}</strong>
+        <span class="rift-tier-badge">${unlocked ? 'เปิดแล้ว' : `ล็อกชั้น ${tier}`}</span>
+      </div>
+      <ul class="rift-stage-list">${stagesHtml}</ul>
+      <div class="rift-tier-ceiling">เพดานรางวัลชั้น ${tier} · พูล ${pool.length} ใบ (ยังไม่มี ${unowned} ใบ) · Epic ${rates.epic}% / Legend ${rates.legendary}%</div>
+      <button type="button" class="${canEnter ? 'primary-button' : 'secondary-button'} rift-enter-btn" data-enter-rift="${tier}" ${canEnter ? '' : 'disabled'}>${escape(btnText)}</button>
+    </article>`;
+  }).join('');
+}
+
+export function openSanctuaryRiftPanel(ctx) {
+  const state = ctx.getState();
+  if (!state || state.phase !== 'sanctuary' || !isRiftUnlocked(state)) return;
+  const sanctuaryMenu = $('sanctuary-menu');
+  const panelIds = [
+    'sanctuary-shop-panel',
+    'sanctuary-upgrade-panel',
+    'sanctuary-deck-panel',
+    'sanctuary-tome-panel',
+    'sanctuary-map-panel',
+    'sanctuary-rift-panel',
+  ];
+  for (const id of panelIds) $(id).hidden = id !== 'sanctuary-rift-panel';
+  $('sanctuary-menu-title').textContent = 'รอยแยกมิติ';
+  renderRiftPanel(state);
+  if (!sanctuaryMenu.open) sanctuaryMenu.showModal();
+  sanctuaryMenu.scrollTop = 0;
 }
 
 export function renderSanctuary(ctx) {
@@ -140,26 +318,44 @@ export function renderSanctuary(ctx) {
     }
   }
 
-  const healPreview = Math.min(Math.max(10, Math.ceil(p.maxHp * 0.4)), p.maxHp - p.hp);
-  const canHeal = healPreview > 0 || p.mana < p.maxMana;
+  const healPreview = p.maxHp - p.hp;
+  const maxMana = getMaxMana(p);
+  const canHeal = healPreview > 0 || p.mana < maxMana;
   const restBtn = $('sanctuary-rest-btn');
   restBtn.disabled = state.sanctuaryRested || !canHeal;
   $('sanctuary-rest-label').textContent = state.sanctuaryRested ? 'พักแล้ว' : canHeal ? 'พักฟื้น' : 'พลังเต็ม';
   $('sanctuary-rest-gain').textContent = !restBtn.disabled
-    ? [healPreview ? `+${healPreview} HP` : '', p.mana < p.maxMana ? 'เติม MP' : ''].filter(Boolean).join(' · ')
+    ? [healPreview ? `+${healPreview} HP` : '', p.mana < maxMana ? 'เติมมานาเต็ม' : ''].filter(Boolean).join(' · ')
     : '';
 
   const nextRoomBtn = $('sanctuary-next-room-btn');
   if (nextRoomBtn) {
-    const cleared = state.clearedRooms ?? [];
-    const highest = Math.min(state.rooms.length - 1, Math.max(state.highestRoom ?? 0, state.room));
-    const defaultRestart = getSanctuaryNextRoom(state, sanctuaryFloor);
-    const targetRoomIdx = Math.min(defaultRestart, highest);
+    const targetRoomIdx = getSanctuaryContinueRoom(state);
     const fInfo = getFloorInfo(targetRoomIdx, state.rooms.length);
-    const isRepeat = cleared.includes(targetRoomIdx);
+    const isRepeat = state.clearedRooms?.includes(targetRoomIdx);
     nextRoomBtn.dataset.revisitRoom = String(targetRoomIdx);
-    const destination = fInfo.isBoss ? fInfo.displayName : `${fInfo.code}`;
+    const destination = fInfo.isBoss ? `บอสชั้น ${fInfo.floor}` : `ชั้น ${fInfo.floor} · ห้อง ${fInfo.code}`;
     $('sanctuary-next-room-label').textContent = isRepeat ? `เล่นซ้ำ · ${destination}` : `ไต่ต่อ · ${destination}`;
+  }
+
+  const riftBtn = $('sanctuary-rift-btn');
+  if (riftBtn) {
+    const isTutorialTower = (state.rooms?.length ?? 0) <= 6;
+    riftBtn.hidden = isTutorialTower;
+    if (!isTutorialTower) {
+      const unlocked = isRiftUnlocked(state);
+      const status = getRiftDailyStatus(state);
+      riftBtn.disabled = !unlocked;
+      riftBtn.classList.toggle('is-locked', !unlocked);
+      $('sanctuary-rift-label').textContent = unlocked ? '🌀 รอยแยก' : '🔒 รอยแยก (ชั้น 20)';
+      $('sanctuary-rift-quota').textContent = unlocked ? `${status.remaining}/${status.cap}` : '';
+      riftBtn.title = unlocked
+        ? `ดันเจี้ยนรอยแยก · คงเหลือวันนี้ ${status.remaining}/${status.cap} รอบ (3 บอสต่อเนื่อง · สุ่มรับการ์ด 1 ใบ)`
+        : 'ผ่านบอสใหญ่ชั้น 20 เพื่อปลดล็อกดันเจี้ยนรอยแยก';
+    }
+  }
+  if ($('sanctuary-rift-panel') && !$('sanctuary-rift-panel').hidden) {
+    renderRiftPanel(state);
   }
 
   ctx.syncDiscoveredFromState();
@@ -193,96 +389,70 @@ export function renderSanctuary(ctx) {
   }
 
   p.stash ??= [];
-  const shopList = $('sanctuary-shop-list');
-  if (shopList) {
-    const availableItems = getAvailableShopItems(state);
-    if (!availableItems.length) {
-      shopList.innerHTML = `<div class="shop-empty-notice">สินค้าในร้านถูกซื้อครบหมดแล้ว</div>`;
-    } else {
-      const groups = [
-        { label: 'ฟื้นฟู HP และมานา', items: availableItems.filter(item => item.hpRestore || item.manaRestore) },
-        { label: 'เครื่องมือในสนาม', items: availableItems.filter(item => !item.hpRestore && !item.manaRestore && !item.vaultOnly) },
-        { label: 'วัตถุดิบตีบวก', items: availableItems.filter(item => item.vaultOnly) },
-      ];
-      const card = item => {
-        const canAfford = p.gold >= item.cost;
-        const hasSpace = (!item.vaultOnly && p.items.length < MAX_BELT_ITEMS) || p.stash.length < MAX_STASH_ITEMS;
-        const disabled = !hasSpace || !canAfford;
-        const stockTag = item.oneTime
-          ? `<span class="shop-stock-tag once">จำกัด 1 ชิ้น</span>`
-          : `<span class="shop-stock-tag repeat">ซื้อซ้ำได้</span>`;
-        const btnLabel = !hasSpace
-          ? `กระเป๋าเต็ม (${MAX_BELT_ITEMS + MAX_STASH_ITEMS}/${MAX_BELT_ITEMS + MAX_STASH_ITEMS})`
-          : !canAfford
-            ? `ทองไม่พอ (${item.cost} ทอง)`
-            : `ซื้อไอเทม · 💰 ${item.cost} ทอง`;
-        return `<article class="shop-item-card ${item.oneTime ? 'is-one-time' : ''} ${disabled ? 'is-disabled' : 'is-selectable'}" data-shop-item="${item.id}" ${disabled ? '' : `data-buy-item="${item.id}"`}><div class="shop-item-head"><span class="shop-item-icon">${item.icon}</span><div class="shop-item-title"><strong>${escape(item.name)}</strong><span class="shop-item-badge">${escape(item.badge)}</span></div><div class="shop-item-price-group"><span class="shop-item-price">💰 ${item.cost}</span>${stockTag}</div></div><p class="shop-item-desc">${escape(item.description)}</p><button type="button" class="secondary-button shop-buy-btn" data-buy-item="${item.id}" ${disabled ? 'disabled' : ''}>${btnLabel}</button></article>`;
-      };
-      shopList.innerHTML = groups.filter(group => group.items.length)
-        .map(group => `<h3 class="shop-group-heading">${group.label}</h3>${group.items.map(card).join('')}`).join('');
-    }
-  }
+  renderShop(state);
 
   renderSanctuaryTravel(state);
 
   const activeEquipped = ctx.getEquipped();
-  const cap = Math.min(7, START_WORDS.length + state.learned.length);
+  const cap = deckCapacity(state);
+  const deckMatchesState = activeEquipped.length === p.words.length
+    && activeEquipped.every(id => p.words.includes(id));
   if ($('sanctuary-deck-count')) {
-    $('sanctuary-deck-count').textContent = `เลือก ${activeEquipped.length} / ${cap} คำ`;
+    $('sanctuary-deck-count').textContent = activeEquipped.length === cap && deckMatchesState
+      ? `เลือก ${activeEquipped.length} / ${cap} คำ · ✓ บันทึกแล้ว`
+      : activeEquipped.length === cap
+        ? `เลือก ${activeEquipped.length} / ${cap} คำ · รอบันทึก`
+        : `เลือก ${activeEquipped.length} / ${cap} คำ · ยังไม่ครบ`;
   }
-  const ownedCards = [...new Set([...START_WORDS, ...(state.collection ?? []), ...(p.words ?? [])])];
-  const upgradeListEl = $('sanctuary-upgrade-list');
-  if (upgradeListEl) {
-    const filterControls = $('sanctuary-card-filters');
-    if (filterControls && !filterControls.firstElementChild) filterControls.innerHTML = cardFilterControls('forge');
-    const hasStone = (p.stash ?? []).includes('smithing_stone') || (p.items ?? []).includes('smithing_stone');
-    upgradeListEl.innerHTML = ownedCards.map(id => {
-      const word = WORDS[id];
-      const lv = getCardUpgradeLevel(state, id);
-      const secUnlocked = hasCardSecondaryUpgrade(state, id);
-      const secTier = getCardSecondaryTier(lv, Boolean(p.cardSecondaryUpgrades?.[id]));
-      const secInfo = getCardSecondaryEffect(id, Math.max(CARD_SECONDARY_UNLOCK_LEVEL, lv));
-      const inActiveDeck = p.words.includes(id);
-      const statGoldCost = getCardUpgradeCost(lv);
-      const chancePercent = getCardUpgradeSuccessRate(lv, hasStone);
-      const isMaxStat = lv >= MAX_CARD_UPGRADE;
-      const canStatUpgrade = !isMaxStat && (hasStone || p.gold >= statGoldCost);
-
-      const nextMilestone = lv < 7 ? 7 : lv < 9 ? 9 : 10;
-      const chanceTone = chancePercent >= 80 ? 'safe' : chancePercent >= 50 ? 'mid' : 'risky';
-      const chancePill = isMaxStat
-        ? `<span class="forge-chance-pill safe">✦ ตีบวกสูงสุด +${MAX_CARD_UPGRADE}</span>`
-        : `<span class="forge-chance-pill ${chanceTone}" title="หากตีบวกไม่ติด การ์ดจะไม่แตกและไม่ลดระดับ">🎲 โอกาสติด ${chancePercent}%${hasStone ? ' (+หิน 15%)' : ''}</span>`;
-
-      const currentStatDesc = lv > 0
-        ? `สเตตัสปัจจุบัน (+${lv}): ${describeCardUpgradeEffect(id, lv)} · ถัดไป (+${Math.min(MAX_CARD_UPGRADE, lv + 1)}): ${describeCardUpgradeEffect(id, Math.min(MAX_CARD_UPGRADE, lv + 1))}`
-        : `เมื่อตีบวก (+1): ${describeCardUpgradeEffect(id, 1)}`;
-      const nextStatBtnLabel = isMaxStat
-        ? `✓ ตีบวกเต็มระดับสูงสุด (+${MAX_CARD_UPGRADE})`
-        : hasStone
-          ? `⚒️ ตีบวก +${lv + 1} (โอกาส ${chancePercent}%) · ใช้หินตีบวกฟรี`
-          : `⚒️ ตีบวก +${lv + 1} (โอกาส ${chancePercent}%) · 💰 ${statGoldCost} ทอง`;
-
-      const milestoneStatusText = secUnlocked
-        ? `🌟 ปลดล็อกเอฟเฟกต์รอง ${secInfo.tierTag} แล้ว (${secInfo.badge})${lv < 10 ? ` · ตีบวกถึง +${nextMilestone} เพื่อยกระดับขั้นถัดไป!` : ' · ระดับสูงสุด!'}`
-        : `🔒 เอฟเฟกต์รองจะปลดล็อกอัตโนมัติเมื่อตีบวกถึง +7 (+9 / +10 แรงขึ้น): ${secInfo.badge}`;
-
-      return `<article class="forge-card word-${id} ${rarityClass(word)} ${lv > 0 || secUnlocked ? 'is-upgraded' : ''}" data-forge-card="${id}" data-filter-card="${id}"><div class="forge-card-head"><div class="forge-card-title"><span class="forge-card-icon">${icon(id)}</span><div><strong>${escape(word.label)}${lv > 0 ? ` +${lv}` : ''}</strong><small class="forge-deck-tag ${inActiveDeck ? 'active' : ''}">${inActiveDeck ? '✓ พกในสำรับ' : 'ในคลังสะสม'}</small></div></div><div class="forge-badges"><span class="forge-lv-pill ${lv > 0 ? 'has-lv' : ''}">+${lv}/${MAX_CARD_UPGRADE}</span>${chancePill}${secUnlocked ? `<span class="forge-sec-pill unlocked">ขั้น ${secTier}: ${escape(secInfo.badge)}</span>` : `<span class="forge-sec-pill locked">ปลดล็อกที่ +7: ${escape(secInfo.badge)}</span>`}</div></div><p class="forge-stat-desc">⚡ ${escape(currentStatDesc)}</p><p class="forge-sec-desc">${escape(milestoneStatusText)} — ${escape(secInfo.description)}</p><div class="forge-actions"><button type="button" class="secondary-button forge-btn forge-stat-btn" data-upgrade-card="${id}" data-upgrade-mode="stat" ${!canStatUpgrade ? 'disabled' : ''}>${nextStatBtnLabel}</button></div></article>`;
+  renderForge(state);
+  const presetsEl = $('sanctuary-deck-presets');
+  if (presetsEl) {
+    const presets = getSanctuaryDeckPresets(state);
+    presetsEl.innerHTML = presets.map((preset, idx) => {
+      const isActive = Boolean(
+        preset
+        && preset.words.length === activeEquipped.length
+        && preset.words.every(id => activeEquipped.includes(id))
+      );
+      const cardsSummary = preset
+        ? preset.words.map(id => escape(WORDS[id]?.label ?? id)).join(' · ')
+        : 'ยังว่าง — จัดคำให้ครบแล้วกดบันทึกเพื่อสลับเด็คไวในคลิกเดียว';
+      return `<article class="deck-preset-slot ${preset ? 'is-filled' : 'is-empty'} ${isActive ? 'is-active' : ''}" data-preset-slot="${idx}">
+        <div class="deck-preset-head">
+          <strong>${escape(preset ? preset.name : `ชุดคำด่วน #${idx + 1}`)}</strong>
+          <span class="deck-preset-badge">${isActive ? '✦ ใช้งานอยู่' : preset ? `${preset.words.length} คำ` : 'ว่าง'}</span>
+        </div>
+        <p class="deck-preset-cards">${cardsSummary}</p>
+        <div class="deck-preset-actions">
+          ${preset ? `<button type="button" class="${isActive ? 'secondary-button' : 'primary-button'} deck-preset-btn" data-apply-preset="${idx}" ${isActive ? 'disabled' : ''}>${isActive ? '✓ ใช้อยู่' : 'ใช้ชุดนี้'}</button>` : ''}
+          <button type="button" class="secondary-button deck-preset-btn" data-save-preset="${idx}" ${activeEquipped.length !== cap ? 'disabled' : ''}>${preset ? 'บันทึกทับ' : 'บันทึกชุดนี้'}</button>
+          ${preset ? `<button type="button" class="secondary-button deck-preset-btn is-danger" data-delete-preset="${idx}" aria-label="ลบชุดคำช่องที่ ${idx + 1}">ลบ</button>` : ''}
+        </div>
+      </article>`;
     }).join('');
-    applyCardFilters($('sanctuary-upgrade-panel'), state);
+  }
+  const deckFiltersEl = $('sanctuary-deck-filters');
+  if (deckFiltersEl && !deckFiltersEl.firstElementChild) {
+    deckFiltersEl.innerHTML = cardFilterControls('deck');
   }
   const wordsEl = $('sanctuary-words');
   if (wordsEl) {
-    wordsEl.innerHTML = [...START_WORDS, ...state.collection].map(id => {
+    const ownedWordIds = [...new Set([...START_WORDS, ...(state.collection ?? [])])];
+    wordsEl.innerHTML = ownedWordIds.map(id => {
       const checked = activeEquipped.includes(id);
       const word = WORDS[id];
       const meta = cardMeta(id);
       const statusBadge = `<span class="equip-state-badge ${checked ? 'is-equipped' : ''}">${checked ? '✓ พกแล้ว' : 'เลือกพก'}</span>`;
-      return `<button type="button" class="secondary-button equip-card playing-card word-${id} ${rarityClass(word)} ${meta.roleClass}" data-sanctuary-equip="${id}" aria-pressed="${checked}" title="${word.description}">${playingCardFace(state, id, { headerRight: statusBadge })}</button>`;
+      return `<button type="button" class="secondary-button equip-card playing-card word-${id} ${rarityClass(word)} ${meta.roleClass}" data-sanctuary-equip="${id}" data-filter-card="${id}" aria-pressed="${checked}" title="${word.description}">${playingCardFace(state, id, { headerRight: statusBadge })}</button>`;
     }).join('');
   }
+  const deckSection = $('sanctuary-deck-section');
+  if (deckSection) applyCardFilters(deckSection, state);
   if ($('sanctuary-save-deck')) {
     $('sanctuary-save-deck').disabled = activeEquipped.length !== cap;
+    $('sanctuary-save-deck').textContent = activeEquipped.length === cap && deckMatchesState
+      ? '✓ บันทึกชุดคำแล้ว (ปิดหน้าต่าง)'
+      : 'บันทึกชุดคำที่เลือก';
   }
 
   const ownedRelics = p.relics ?? [];
@@ -337,6 +507,7 @@ export function bindSanctuaryEvents(ctx) {
     deck: ['sanctuary-deck-panel', 'ชุดคำ'],
     tome: ['sanctuary-tome-panel', 'ตำรา'],
     map: ['sanctuary-map-panel', 'เลือกชั้นอื่น'],
+    rift: ['sanctuary-rift-panel', 'รอยแยกมิติ'],
   };
 
   for (const [selector, iconId] of [
@@ -352,6 +523,13 @@ export function bindSanctuaryEvents(ctx) {
       const [activePanel, title] = sanctuaryPanels[button.dataset.sanctuaryMenu];
       for (const [panel] of Object.values(sanctuaryPanels)) $(panel).hidden = panel !== activePanel;
       $('sanctuary-menu-title').textContent = title;
+      if (activePanel === 'sanctuary-upgrade-panel') renderForge(ctx.getState());
+      if (activePanel === 'sanctuary-rift-panel') renderRiftPanel(ctx.getState());
+      if (activePanel === 'sanctuary-shop-panel') {
+        selectedShopItem = null;
+        $('shop-receipt').textContent = '';
+        renderShop(ctx.getState());
+      }
       button.focus({ preventScroll: true });
       sanctuaryMenu.showModal();
       sanctuaryMenu.scrollTop = 0;
@@ -359,12 +537,115 @@ export function bindSanctuaryEvents(ctx) {
     });
   }
 
+  $('shop-search').addEventListener('input', () => {
+    selectedShopItem = null;
+    $('sanctuary-shop-list').scrollTop = 0;
+    $('shop-receipt').textContent = '';
+    renderShop(ctx.getState());
+  });
+  $('shop-categories').addEventListener('click', event => {
+    const button = event.target.closest('[data-shop-category]');
+    if (!button || button.dataset.shopCategory === shopCategory) return;
+    shopCategory = button.dataset.shopCategory;
+    selectedShopItem = null;
+    $('sanctuary-shop-list').scrollTop = 0;
+    $('shop-receipt').textContent = '';
+    renderShop(ctx.getState());
+  });
+  $('sanctuary-shop-list').addEventListener('click', event => {
+    const button = event.target.closest('[data-shop-choice]');
+    if (!button || button.dataset.shopChoice === selectedShopItem) return;
+    selectedShopItem = button.dataset.shopChoice;
+    $('shop-receipt').textContent = '';
+    preserveFocus(() => renderShop(ctx.getState()));
+    ctx.audio.play('place');
+  });
+  $('shop-buy-btn').addEventListener('click', event => {
+    const button = event.currentTarget;
+    const state = ctx.getState();
+    if (button.disabled || !selectedShopItem || state?.phase !== 'sanctuary') return;
+    const item = SHOP_ITEMS[selectedShopItem];
+    const receipt = $('shop-receipt');
+    try {
+      const next = buyShopItem(state, item.id);
+      const storage = next.player.items.length > state.player.items.length ? 'เข็มขัด' : 'คลังสำรอง';
+      ctx.setState(next);
+      ctx.persist();
+      ctx.audio.play('coin');
+      renderSanctuary(ctx);
+      ctx.updateInventoryBadge();
+      receipt.textContent = `ซื้อ “${item.name}” แล้ว · เก็บใน${storage}`;
+      if (button.disabled) $('shop-item-name').focus({ preventScroll: true });
+      for (const id of ['sanctuary-shop-gold', 'sanctuary-gold-pill']) {
+        queueFxClassRestart($(id), ['gold-balance-flash'], 'gold-balance-flash');
+      }
+    } catch (error) {
+      receipt.textContent = error.message;
+    }
+  });
+
+  const forgeStage = $('forge-stage');
+  $('sanctuary-upgrade-list').addEventListener('click', event => {
+    const choice = event.target.closest('[data-forge-word]');
+    if (!choice || forgeImpactTimer || choice.dataset.forgeWord === forgeWord) return;
+    forgeWord = choice.dataset.forgeWord;
+    forgeResult = null;
+    forgeStage.classList.remove('is-striking');
+    preserveFocus(() => renderForge(ctx.getState()));
+  });
+
+  $('forge-upgrade-btn').addEventListener('click', event => {
+    const button = event.currentTarget;
+    const state = ctx.getState();
+    if (forgeImpactTimer || button.disabled || state?.phase !== 'sanctuary') return;
+    try {
+      forgeResult = upgradeWordCard(state, forgeWord);
+      ctx.setState(forgeResult.state);
+      ctx.persist();
+      const reveal = () => {
+        forgeImpactTimer = 0;
+        ctx.audio.play(forgeResult.failed ? 'invalid' : 'forge');
+        renderSanctuary(ctx);
+        ctx.updateInventoryBadge();
+        if (button.disabled) $('forge-word-name').focus({ preventScroll: true });
+      };
+      if (document.body.classList.contains('reduced-motion') || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        reveal();
+      } else {
+        forgeStage.dataset.outcome = 'pending';
+        $('forge-result').dataset.outcome = 'pending';
+        $('forge-result').textContent = 'กำลังตีบวก…';
+        button.setAttribute('aria-disabled', 'true');
+        queueFxClassRestart(forgeStage, ['is-striking'], 'is-striking');
+        forgeImpactTimer = setTimeout(reveal, 230);
+      }
+    } catch (error) {
+      $('forge-result').textContent = error.message;
+      $('forge-result').dataset.outcome = 'fail';
+    }
+  });
+
+  sanctuaryMenu.addEventListener('close', () => {
+    const state = ctx.getState();
+    if (state?.phase === 'sanctuary' && typeof ctx.syncSanctuaryEquipped === 'function') {
+      ctx.syncSanctuaryEquipped({ requireComplete: false, notifyInvalid: false });
+    }
+    if (!forgeImpactTimer && !forgeStage.classList.contains('is-striking')) return;
+    clearTimeout(forgeImpactTimer);
+    forgeImpactTimer = 0;
+    forgeStage.classList.remove('is-striking');
+    if (ctx.getState()?.phase === 'sanctuary') {
+      renderSanctuary(ctx);
+      ctx.updateInventoryBadge();
+    }
+  });
+
   $('sanctuary-rest-btn')?.addEventListener('click', () => {
     try {
       ctx.setState(restAtSanctuary(ctx.getState()));
       ctx.persist();
-      ctx.audio.play('win');
-      ctx.toast('🔥 พักฟื้นที่กองไฟสำเร็จ! ฟื้นพลังชีวิตและเติมมานาเต็มแล้ว');
+      ctx.audio.play('rest');
+      ctx.toast('พักที่กองไฟแล้ว · HP และมานาเต็ม');
       renderSanctuary(ctx);
       $('sanctuary-next-room-btn').focus({ preventScroll: true });
     } catch (error) { ctx.toast(error.message); }
@@ -407,13 +688,61 @@ export function bindSanctuaryEvents(ctx) {
     ctx.openTools('tome');
   });
 
+  $('sanctuary-deck-presets')?.addEventListener('click', event => {
+    const saveBtn = event.target.closest('[data-save-preset]');
+    if (saveBtn) {
+      const slot = Number(saveBtn.dataset.savePreset);
+      try {
+        const next = saveSanctuaryDeckPreset(ctx.getState(), slot, ctx.getEquipped());
+        ctx.setState(next);
+        ctx.setEquipped([...next.player.words]);
+        ctx.persist();
+        ctx.audio.play('place');
+        const saved = getSanctuaryDeckPresets(next)[slot];
+        ctx.toast(`💾 บันทึก “${saved?.name ?? `ชุดคำ #${slot + 1}`}” แล้ว`);
+        renderSanctuary(ctx);
+      } catch (error) { ctx.toast(error.message); }
+      return;
+    }
+    const applyBtn = event.target.closest('[data-apply-preset]');
+    if (applyBtn) {
+      const slot = Number(applyBtn.dataset.applyPreset);
+      try {
+        const next = applySanctuaryDeckPreset(ctx.getState(), slot);
+        ctx.setState(next);
+        ctx.setEquipped([...next.player.words]);
+        ctx.persist();
+        ctx.audio.play('place');
+        const applied = getSanctuaryDeckPresets(next)[slot];
+        ctx.toast(`⚡ สลับเป็น “${applied?.name ?? `ชุดคำ #${slot + 1}`}” พร้อมลุยทันที`);
+        renderSanctuary(ctx);
+      } catch (error) { ctx.toast(error.message); }
+      return;
+    }
+    const delBtn = event.target.closest('[data-delete-preset]');
+    if (delBtn) {
+      const slot = Number(delBtn.dataset.deletePreset);
+      try {
+        const next = deleteSanctuaryDeckPreset(ctx.getState(), slot);
+        ctx.setState(next);
+        ctx.persist();
+        ctx.audio.play('clear');
+        ctx.toast(`🗑 ล้างชุดคำด่วนช่องที่ ${slot + 1} แล้ว`);
+        renderSanctuary(ctx);
+      } catch (error) { ctx.toast(error.message); }
+    }
+  });
+
   $('sanctuary-save-deck')?.addEventListener('click', () => {
     try {
-      ctx.setState(updateSanctuaryLoadout(ctx.getState(), ctx.getEquipped()));
+      const next = updateSanctuaryLoadout(ctx.getState(), ctx.getEquipped());
+      ctx.setState(next);
+      ctx.setEquipped([...next.player.words]);
       ctx.persist();
       ctx.audio.play('place');
       ctx.toast('📖 บันทึกชุดคำประจำตัวเรียบร้อยแล้ว');
       renderSanctuary(ctx);
+      if (sanctuaryMenu.open) sanctuaryMenu.close();
     } catch (error) { ctx.toast(error.message); }
   });
 }

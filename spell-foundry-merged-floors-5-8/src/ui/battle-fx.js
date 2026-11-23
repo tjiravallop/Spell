@@ -1,7 +1,8 @@
-import { WORDS, elementFamily } from '../words.js';
-import { ENEMIES, RELIC_DRAFT_CATALOG } from '../run.js';
+import { WORDS, elementFamily, ELEMENT_ICONS, ELEMENT_LABELS } from '../words.js';
+import { ETERNITY_PHASE_HP, ETERNITY_FIRST_FORM_HP, eternityHealth, ENEMIES, RELIC_DRAFT_CATALOG } from '../run.js';
 import { damageLabel, fizzleLabel, wardLabel } from '../render.js';
 import { $, queueFxClassRestart, upperCheckpoint, checkpointFloor } from './dom.js';
+import { renderSummonCardHtml } from './battle-render.js';
 
 export const CAMERA_SHAKE_CLASSES = [
   'camera-shake-damage',
@@ -21,6 +22,40 @@ let lastPlayerHpWidth = null;
 
 export function resetPlayerHpFx() {
   lastPlayerHpWidth = null;
+}
+
+const ETERNITY_PHASE_NAMES = ['สภากาลอวกาศ', 'ผลึกสลับธาตุ', 'ร่างจุตินิรันดร์'];
+
+export function renderEternityMeter(health) {
+  const meter = $('eternity-meter');
+  if (!meter) return;
+  meter.hidden = !health;
+  if (!health) return;
+  const { phase, remaining } = health;
+  const revealed = Boolean(health.revealed || phase === 3);
+  meter.dataset.phase = phase;
+  meter.dataset.revealed = revealed ? 'true' : 'false';
+  const visibleCount = revealed ? 3 : 2;
+  const totalHp = health.total ?? (revealed ? ETERNITY_PHASE_HP[2] : ETERNITY_FIRST_FORM_HP);
+  let segments;
+  if (revealed) {
+    segments = ETERNITY_PHASE_HP.map((size, index) => {
+      const left = index === 2 ? Math.max(0, Math.min(size, remaining)) : 0;
+      const secretCls = index === 2 ? ' is-secret' : '';
+      return `<span class="eternity-segment${secretCls}" style="--phase-weight:${size};--phase-left:${left / size * 100}%"${phase === index + 1 ? ' aria-current="step"' : ''}><i></i><small>${index + 1} ${ETERNITY_PHASE_NAMES[index]}</small></span>`;
+    }).join('');
+  } else {
+    let preceding = 0;
+    segments = ETERNITY_PHASE_HP.slice(0, 2).map((size, index) => {
+      preceding += size;
+      const left = Math.max(0, Math.min(size, remaining - (ETERNITY_FIRST_FORM_HP - preceding)));
+      return `<span class="eternity-segment" style="--phase-weight:${size};--phase-left:${left / size * 100}%"${phase === index + 1 ? ' aria-current="step"' : ''}><i></i><small>${index + 1} ${ETERNITY_PHASE_NAMES[index]}</small></span>`;
+    }).join('');
+  }
+  const phaseLabel = revealed
+    ? `เฟส 3/3 · ${ETERNITY_PHASE_NAMES[2]} (คืนชีพลับ!)`
+    : `เฟส ${phase}/${visibleCount} · ${ETERNITY_PHASE_NAMES[phase - 1]}`;
+  meter.innerHTML = `<div class="eternity-meter-header"><strong>${phaseLabel}</strong><span>${remaining.toLocaleString('en-US')} / ${totalHp.toLocaleString('en-US')} HP</span></div><div class="eternity-segments">${segments}</div>`;
 }
 
 export function renderPlayerHp(hp, maxHp) {
@@ -47,6 +82,34 @@ export function triggerEnemyCardFx(enemyId, fxClass) {
   const card = $(`target-${enemyId}`);
   if (!card) return;
   queueFxClassRestart(card, ['enemy-hit-shake', 'enemy-acting-lunge', 'enemy-targeted-pulse'], fxClass);
+}
+
+export function renderShieldStatus(protection, elementBuffs = null, turn = 1) {
+  const el = $('shield-status');
+  const layers = protection?.details ?? [];
+  const parts = [];
+  if (layers.length) {
+    parts.push(`โล่ ${layers.length} ชั้น · ${layers.map(layer => {
+      const elements = layer.elements ?? (layer.effect ? [layer.effect] : []);
+      const name = elements.map(id => WORDS[id]?.label ?? (id === 'akki-blast' ? 'อัคคีระเบิด' : id)).join('+');
+      return `${name ? name + ' ' : ''}${layer.hp}`;
+    }).join(' / ')}`);
+  }
+  if (elementBuffs && typeof elementBuffs === 'object') {
+    const activeBuffs = Object.entries(elementBuffs)
+      .filter(([, buff]) => buff && buff.expires >= turn)
+      .map(([fam, buff]) => {
+        const iconChar = ELEMENT_ICONS[fam] ?? '✦';
+        const label = ELEMENT_LABELS[fam] ?? fam;
+        const left = Math.max(1, buff.expires - turn + 1);
+        return `${iconChar}${label} +${buff.pct}%${buff.pierceBonus ? ` เจาะ+${buff.pierceBonus}` : ''} (${left} เทิร์น)`;
+      });
+    if (activeBuffs.length) {
+      parts.push(`บัพธาตุ: ${activeBuffs.join(' · ')}`);
+    }
+  }
+  el.hidden = !parts.length;
+  el.textContent = parts.join(' | ');
 }
 
 export function pulsePlayerHud(kind = 'shield') {
@@ -88,13 +151,55 @@ export function pulseSpellSlotsElem(elem = 'fire') {
 
 export function createBattleFxController({ getState, getTargetId, getSettings, getAudio, getBattlefield }) {
   let animEnemyHp = {};
+  let animEternityPhase = 1;
   let animPlayerHp = 0;
   let animPlayerMaxHp = 0;
+  let animSummon = null;
+
+  function syncAnimatedSummonCard(fxClass = null) {
+    const list = $('enemy-list');
+    if (!list || typeof list.querySelector !== 'function') return;
+    const existing = list.querySelector('.summon-card');
+    if (!animSummon || !(animSummon.hp > 0)) {
+      existing?.remove();
+      return;
+    }
+    if (!existing) {
+      if (typeof list.insertAdjacentHTML === 'function') {
+        list.insertAdjacentHTML('afterbegin', renderSummonCardHtml(animSummon));
+      } else {
+        list.innerHTML = renderSummonCardHtml(animSummon) + (list.innerHTML ?? '');
+      }
+      const created = list.querySelector('.summon-card');
+      if (created && fxClass) queueFxClassRestart(created, ['enemy-hit-shake', 'enemy-acting-lunge', 'enemy-targeted-pulse'], fxClass);
+      return;
+    }
+    const maxHp = Math.max(1, animSummon.maxHp ?? animSummon.hp);
+    const pctStr = `${Math.max(0, Math.min(100, (animSummon.hp / maxHp) * 100))}%`;
+    const hpText = existing.querySelector('.enemy-hp-text');
+    const hpTrail = existing.querySelector('.enemy-hp-trail');
+    const hpFill = existing.querySelector('.enemy-hp-fill');
+    if (hpText) hpText.textContent = `${animSummon.hp}/${maxHp}`;
+    if (hpTrail) hpTrail.style.width = pctStr;
+    if (hpFill) hpFill.style.width = pctStr;
+    const wardBadge = existing.querySelector('[data-summon-ward]');
+    if (wardBadge) {
+      if ((animSummon.ward ?? 0) > 0) wardBadge.textContent = `🔮 ม่าน ${animSummon.ward}`;
+      else wardBadge.remove();
+    }
+    if (fxClass) queueFxClassRestart(existing, ['enemy-hit-shake', 'enemy-acting-lunge', 'enemy-targeted-pulse'], fxClass);
+  }
 
   function beginTurnAnimation(state) {
+    const numbers = $('combat-numbers');
+    if (numbers && typeof numbers.replaceChildren === 'function') numbers.replaceChildren();
+    else if (numbers) numbers.innerHTML = '';
+    animEternityPhase = state.eternityPhase ?? 1;
     animEnemyHp = Object.fromEntries(state.enemies.map(e => [e.id, e.hp]));
     animPlayerHp = state.player.hp;
     animPlayerMaxHp = state.player.maxHp;
+    const active = state.player?.summon || state.summon;
+    animSummon = active && active.hp > 0 ? { ...active } : null;
   }
 
   function changeAnimatedPlayerHp(amount, maxGain = 0) {
@@ -103,12 +208,12 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
     renderPlayerHp(animPlayerHp, animPlayerMaxHp);
   }
 
-  function spawnEnemyPop(enemyId, text, variant = 'damage', extraClass = '') {
+  function spawnEnemyPop(enemyId, text, variant) {
     const card = $(`target-${enemyId}`);
     if (!card || getSettings().reducedMotion) return;
     const existing = card.querySelectorAll('.enemy-floating-pop').length;
     const pop = document.createElement('span');
-    pop.className = `enemy-floating-pop pop-${variant}${extraClass ? ` ${extraClass}` : ''}`;
+    pop.className = `enemy-floating-pop pop-${variant}`;
     pop.setAttribute('aria-hidden', 'true');
     pop.textContent = text;
     if (existing > 0) {
@@ -120,7 +225,8 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
     card.appendChild(pop);
     const cleanup = () => pop.remove();
     pop.addEventListener('animationend', cleanup, { once: true });
-    setTimeout(cleanup, 950);
+    const speed = Math.max(1, Math.min(3, Number(getSettings()?.combatSpeed) || 1));
+    setTimeout(cleanup, Math.round(950 / speed));
   }
 
   function changeAnimatedEnemyHp(id, amount) {
@@ -130,6 +236,10 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
     const prevHp = animEnemyHp[id] ?? enemy.hp;
     const nextHp = Math.max(0, Math.min(enemy.maxHp, prevHp + amount));
     animEnemyHp[id] = nextHp;
+    if (enemy.kind === 'eternity_overlord' || enemy.kind === 'eternity_reborn') {
+      const health = eternityHealth(state, animEternityPhase, nextHp);
+      if (health) renderEternityMeter(health);
+    }
     const card = $(`target-${id}`);
     if (!card) return;
     const hpTextEl = card.querySelector('.enemy-hp-text');
@@ -153,7 +263,7 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
     if (getSettings().reducedMotion) return;
     const wrap = $('battlefield-wrap') ?? document.querySelector('.battlefield-wrap');
     const battleView = $('battle-view');
-    const isStorm = bossKind === 'tempest_archon';
+    const isStorm = bossKind === 'tempest_archon' || bossKind === 'thunder_drake_emperor' || bossKind === 'abyssal_kraken';
     const wrapClass = intensity === 'boss-ultimate'
       ? (isStorm ? 'camera-shake-boss-ultimate-storm' : 'camera-shake-boss-ultimate-fire')
       : intensity === 'boss-heavy'
@@ -177,7 +287,7 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
     if (!layer || getSettings().reducedMotion) return;
     const state = getState();
     const battlefield = getBattlefield();
-    const isStorm = bossKind === 'tempest_archon';
+    const isStorm = bossKind === 'tempest_archon' || bossKind === 'thunder_drake_emperor' || bossKind === 'abyssal_kraken';
     const themeClass = isStorm ? 'elem-boss-ultimate-storm' : 'elem-boss-ultimate-fire';
     let impactX = 16;
     let impactY = 66;
@@ -243,12 +353,60 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
     };
   }
 
-  function handleCombatStep(event) {
+  function showCombatNumber(event, index) {
+    const heals = event.type === 'heal' || event.type === 'room-clear';
+    const incoming = ['attack', 'mirror-reflect', 'ember-thorns', 'storm-static', 'nether-curse', 'cosmic-echo'].includes(event.type);
+    if (!heals && !incoming && event.type !== 'damage') return;
+    const amount = event.recovered ?? event.actual ?? event.amount;
+    if (!(amount > 0)) return;
+
+    const actor = incoming || event.type === 'room-clear' ? 'player' : event.target;
+    const state = getState();
+    const enemyIndex = state.enemies.findIndex(enemy => enemy.id === actor);
+    const battlefield = getBattlefield();
+    const layer = $('combat-numbers');
+    if (!layer || !layer.children) return;
+    const related = [...layer.children].filter(number => number.dataset.actor === actor);
+    const usedLanes = new Set(related.map(number => number.dataset.lane));
+    const lane = ['0', '1', '2'].find(candidate => !usedLanes.has(candidate)) ?? related[0].dataset.lane;
+    if (usedLanes.size === 3) related[0].remove();
+    if (layer.childElementCount >= 12) layer.firstElementChild.remove();
+
+    const number = document.createElement('span');
+    number.className = 'combat-number';
+    number.dataset.actor = actor;
+    number.dataset.lane = lane;
+    number.dataset.kind = heals ? 'heal' : incoming ? 'incoming' : 'damage';
+    number.dataset.element = elementFamily(event.element ?? '');
+    const strong = Boolean(event.grand || event.large || event.heavy || event.weakness || event.killed || amount >= (heals ? 12 : 15));
+    if (strong) number.classList.add('is-strong');
+    if (event.weakness || event.killed) number.classList.add('is-gold');
+    const name = heals ? 'ฟื้น HP' : event.weakness ? 'จุดอ่อน' : event.killed ? 'ปิดฉาก' : event.resisted ? 'ต้านทาน' : event.ultimate ? 'ท่าบอส' : 'HP';
+    const digits = document.createElement('strong');
+    digits.textContent = `${heals ? '+' : '−'}${amount}`;
+    const caption = document.createElement('small');
+    caption.textContent = name;
+    number.append(digits, caption);
+
+    const x = actor === 'player' ? 51 : battlefield.snapshots?.[index]?.positions[enemyIndex] ?? enemyImpactCoords(actor).x;
+    const stagger = enemyIndex < 0 ? 0 : (state.enemies[enemyIndex].slot % 2) * 24;
+    const offset = [0, 22, -22][Number(lane)];
+    number.style.setProperty('--number-x', `calc(${x / 3.2}% + ${offset}px)`);
+    number.style.setProperty('--number-y', `${62 - stagger - Number(lane) * 15}%`);
+    layer.appendChild(number);
+    number.addEventListener('animationend', () => number.remove(), { once: true });
+    const speed = Math.max(1, Math.min(3, Number(getSettings()?.combatSpeed) || 1));
+    setTimeout(() => number.remove(), Math.round(880 / speed));
+  }
+
+  function handleCombatStep(event, index) {
     const state = getState();
     const audio = getAudio();
     const battlefield = getBattlefield();
     audio.combat(event);
     const status = $('animation-status-text');
+    if (event.protection) renderShieldStatus(event.protection);
+    showCombatNumber(event, index);
     switch (event.type) {
       case 'projectile': {
         const form = WORDS[event.form]?.label ?? event.form;
@@ -264,23 +422,28 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
           });
         }
         if (event.blocked) {
-          triggerEnemyCardFx(event.target, 'enemy-targeted-pulse');
-          spawnEnemyPop(event.target, 'กันม่าน', 'ward');
-          const { x, y } = enemyImpactCoords(event.target);
-          pulseElementalOverlay('ward', x, y);
-          const wardBadge = document.querySelector(`#target-${event.target} .badge-ward:not(.badge-sealed)`);
-          if (wardBadge) {
-            if (event.wardRemaining > 0) wardBadge.textContent = `🔮 ม่าน ${event.wardRemaining}`;
-            else wardBadge.remove();
-          }
+          showWardHit(event, event.wardRemaining > 0 ? 'ม่าน −1' : 'ม่านแตก');
           status.textContent = `${[form, element].filter(Boolean).join(' ')} · ${wardLabel(event.wardRemaining)}`;
         } else if (event.damage) {
-          handleCombatStep(event.damage);
+          handleCombatStep(event.damage, index);
         } else {
           status.textContent = `ร่าย ${[form, element].filter(Boolean).join(' ')}`;
         }
+        if (event.lightPenalty) {
+          status.textContent += ` · เบา${event.lightPierce && !event.blocked ? ` · เจาะ +${event.lightPierce}` : ''}`;
+        }
+        if (event.form === 'axe' && !event.blocked) status.textContent += ' · จามข้ามเกราะ';
         break;
       }
+      case 'timestop':
+        status.textContent = 'หยุดเวลา · ข้ามการกระทำของศัตรูทั้งหมด';
+        break;
+      case 'ascension':
+        status.textContent = 'เริ่มจุติ · การ์ดจะเป็น +10 เมื่อถึงเทิร์นหน้า';
+        break;
+      case 'ascension-ready':
+        status.textContent = 'จุติสำเร็จ · การ์ด +10 · ร่ายฟรีในเทิร์นนี้';
+        break;
       case 'damage': {
         if (event.element === 'death' && event.amount > 0) {
           const { x, y } = enemyImpactCoords(event.target);
@@ -294,17 +457,28 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
         if (event.amount > 0) {
           changeAnimatedEnemyHp(event.target, -(event.actual ?? event.amount));
           triggerEnemyCardFx(event.target, 'enemy-hit-shake');
-          const elemCls = event.element ? `elem-${elementFamily(event.element)}` : '';
-          const weakTag = event.weakness ? ' ⚡จุดอ่อน' : event.resisted ? ' 🛡ต้านทาน' : '';
-          spawnEnemyPop(event.target, `-${event.amount}${event.killed ? ' ✦' : ''}${weakTag}`, 'damage', `${elemCls}${event.weakness ? ' pop-weakness' : ''}${event.killed ? ' pop-killed' : ''}`.trim());
         } else {
           triggerEnemyCardFx(event.target, 'enemy-targeted-pulse');
-          spawnEnemyPop(event.target, 'เกราะ 0', 'target');
+          spawnEnemyPop(event.target, 'เกราะกันหมด', 'target');
         }
         if (event.levelMaxHp) changeAnimatedPlayerHp(event.levelHp, event.levelMaxHp);
         status.textContent = `${damageLabel(event)}${event.killed ? ' · ปราบศัตรูแล้ว' : ''}`;
         break;
       }
+      case 'armor-shred': {
+        const badge = $(`target-${event.target}`)?.querySelector('.badge-armor-value');
+        if (badge) {
+          badge.textContent = `🛡 เกราะ ${event.armor}`;
+          badge.title = 'ค่าพลังป้องกันหลังโดนทุบเกราะ';
+        }
+        spawnEnemyPop(event.target, `เกราะ −${event.amount}`, 'target');
+        status.textContent = `ทุบเกราะ −${event.amount} · เหลือ ${event.armor}`;
+        break;
+      }
+      case 'shield-counter':
+        spawnEnemyPop(event.target, `โล่${WORDS[event.element].label}ตอบโต้`, 'status');
+        status.textContent = `โล่${WORDS[event.element].label}ตอบโต้ผู้โจมตี`;
+        break;
       case 'blast': {
         pulseSpellSlotsElem(event.element ?? 'fire');
         const label = event.element === 'blackhole' ? 'หลุมดำยุบ' : event.element === 'meteor' ? 'อุกกาบาตตก' : event.devastation ? 'ทำลายล้าง' : event.radius === 2 ? 'มหาระเบิด' : 'ระเบิด';
@@ -335,22 +509,29 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
         break;
       case 'chain-lightning':
         status.textContent = `${WORDS[event.element].label}ชิ่ง`;
-        if (event.damage) handleCombatStep(event.damage);
+        if (event.damage) handleCombatStep(event.damage, index);
         break;
       case 'magma-puddle':
         status.textContent = `แอ่งแมกม่าช่อง ${event.slot + 1} ปะทุเทิร์นหน้า`;
         break;
       case 'magma-erupt':
         status.textContent = `แอ่งแมกม่าช่อง ${event.slot + 1} ปะทุ`;
-        if (event.damage) handleCombatStep(event.damage);
+        if (event.damage) handleCombatStep(event.damage, index);
         break;
       case 'ward-grant':
         status.textContent = `ช่อง ${event.slot + 1} ได้ม่านเพิ่มเทิร์นหน้า`;
         triggerEnemyCardFx(event.target, 'enemy-targeted-pulse');
         break;
+      case 'prism-shatter': {
+        triggerEnemyCardFx(event.target, 'enemy-hit-shake');
+        spawnEnemyPop(event.target, `ผลึกแตก +${event.amount}`, 'weak');
+        const { x, y } = enemyImpactCoords(event.target);
+        pulseElementalOverlay(event.element ?? 'lightning', x, y, { boosted: true });
+        status.textContent = `✨ ทลายผลึกธาตุ! +${event.amount} ดาเมจแท้`;
+        break;
+      }
       case 'dispel':
-        $(`target-${event.target}`)?.querySelector('.badge-ward:not(.badge-sealed)')?.remove();
-        spawnEnemyPop(event.target, `สลายม่าน -${event.amount}`, 'ward');
+        showWardHit(event, event.wardRemaining > 0 ? `ม่าน −${event.amount}` : 'ม่านแตก');
         status.textContent = `สลายม่าน ${event.amount} ชั้น`;
         break;
       case 'seal':
@@ -366,6 +547,9 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
         status.textContent = 'โล่ยืนหยัด · กันเพิ่ม 6';
         pulsePlayerHud('shield');
         pulseElementalOverlay('brace', 16, 66);
+        break;
+      case 'shield-delay':
+        status.textContent = 'ตั้งหน่วงโล่ · กางต้นเทิร์นถัดไป';
         break;
       case 'shield': {
         pulseSpellSlotsElem(event.elements?.[0] ?? 'shield');
@@ -386,7 +570,9 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
             withVignette: Boolean(event.grand),
           });
         }
-        status.textContent = event.restored ? `ต้นเทิร์นถัดไปเติมโล่ +${event.restored}` : `กางโล่ +${event.amount}`;
+        status.textContent = event.delayed
+          ? `ถึงเทิร์นถัดไป · หน่วงโล่กาง +${event.amount}`
+          : event.restored ? `ต้นเทิร์นถัดไปเติมโล่ +${event.restored}` : `กางโล่ +${event.amount}`;
         break;
       }
       case 'heal': {
@@ -407,7 +593,6 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
           changeAnimatedEnemyHp(event.target, event.amount);
           triggerEnemyCardFx(event.target, 'enemy-targeted-pulse');
           if (event.amount > 0) {
-            spawnEnemyPop(event.target, `+${event.amount}`, 'heal');
             const { x, y } = enemyImpactCoords(event.target);
             pulseElementalOverlay('ward', x, y);
           }
@@ -416,39 +601,72 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
         status.textContent = `${action} +${event.amount} HP`;
         break;
       }
-      case 'status':
+      case 'status': {
+        const label = { burn: 'เผาไหม้', chill: 'หนาว', freeze: 'แช่แข็ง' }[event.status];
         triggerEnemyCardFx(event.target, 'enemy-targeted-pulse');
-        spawnEnemyPop(event.target, event.status === 'burn' ? '🔥 เผา' : '🧊 แช่แข็ง', 'status');
-        status.textContent = event.status === 'burn' ? 'ศัตรูติดเผา' : 'ศัตรูถูกแช่แข็ง';
+        spawnEnemyPop(event.target, label, 'status');
+        status.textContent = `ศัตรูติดสถานะ${label}`;
         break;
+      }
       case 'push': {
         triggerEnemyCardFx(event.target, 'enemy-hit-shake');
         const enemy = state.enemies.find(candidate => candidate.id === event.target);
         const card = $(`target-${event.target}`);
         if (enemy && card) {
           card.style.setProperty('--enemy-x', `${battlefield.enemyX(enemy, event.slot) / 3.2}%`);
+          const label = card.querySelector('[data-enemy-slot-label]');
+          if (label) label.textContent = `ช่อง ${event.slot + 1}`;
           if (Object.hasOwn(card.dataset, 'middleLane')) card.dataset.middleLane = event.slot % 2;
         }
         status.textContent = event.advancing ? `ศัตรูไล่ประชิดช่อง ${event.slot + 1}` : `${event.pulled ? 'ดึง' : 'ผลัก'}ศัตรูไปช่อง ${event.slot + 1}`;
+        break;
+      }
+      case 'wall-slam': {
+        triggerEnemyCardFx(event.target, 'enemy-hit-shake');
+        const { x, y } = enemyImpactCoords(event.target);
+        pulseElementalOverlay('earth', x, y);
+        spawnEnemyPop(event.target, event.collision ? 'ชนกระแทก!' : 'กระแทกขอบ!', 'status');
+        status.textContent = event.collision
+          ? `ศัตรูชนกระแทกกัน! (ดาเมจกระแทกทะลุเกราะ ${event.amount})`
+          : `ศัตรูถูกผลักกระแทกขอบสนาม! (${event.amount})`;
         break;
       }
       case 'swap':
         status.textContent = `ศัตรูสลับช่อง ${event.slot + 1} กับ ${event.sourceSlot + 1}`;
         for (const [id, slot] of [[event.target, event.slot], [event.source, event.sourceSlot]]) {
           const enemy = state.enemies.find(candidate => candidate.id === id);
-          if (enemy) $(`target-${id}`)?.style.setProperty('--enemy-x', `${battlefield.enemyX(enemy, slot) / 3.2}%`);
+          const card = $(`target-${id}`);
+          if (enemy && card) {
+            card.style.setProperty('--enemy-x', `${battlefield.enemyX(enemy, slot) / 3.2}%`);
+            const label = card.querySelector('[data-enemy-slot-label]');
+            if (label) label.textContent = `ช่อง ${slot + 1}`;
+          }
         }
         break;
       case 'attack': {
         changeAnimatedPlayerHp(-event.amount);
         const sourceEnemy = state?.enemies?.find(candidate => candidate.id === event.source);
         const sourceKind = event.sourceKind ?? sourceEnemy?.kind;
-        const isSpecialBoss = Boolean(event.specialBoss || sourceKind === 'ember_overlord' || sourceKind === 'tempest_archon');
+        const isSpecialBoss = Boolean(event.specialBoss || ['ember_overlord', 'tempest_archon', 'volcano_colossus', 'thunder_drake_emperor', 'abyssal_kraken', 'nether_dread_lord', 'eternity_overlord', 'eternity_reborn'].includes(sourceKind));
         const isUltimate = Boolean(event.ultimate || (isSpecialBoss && (event.rawAttack ?? 0) >= 15));
         if (isUltimate) pulseBossUltimateImpact(sourceKind, 'attack', event.source);
         pulsePlayerHud(event.amount > 0 ? 'hit' : 'shield');
         if (isUltimate) {
-          const skillName = sourceKind === 'tempest_archon' ? '⚡ จ้าวพายุฟาดอสุนีพิพากษา!' : '💥 จ้าวอัคคีทุบพิพากษาเพลิง!';
+          const skillName = sourceKind === 'eternity_reborn'
+            ? '✨ มหาเทพจุตินิรันดร์ซัดซูเปอร์โนวาดับจักรวาล!'
+            : sourceKind === 'eternity_overlord'
+              ? '🌌 มหาเทพอนันตกาลปลดปล่อยคลื่นทำลายกาลอวกาศ!'
+              : sourceKind === 'nether_dread_lord'
+                ? '💀 จอมอสูรนรกานต์ซัดเปลวเพลิงพิพากษา!'
+                : sourceKind === 'abyssal_kraken'
+                  ? '🌊 มหาคราเค่นซัดสึนามิบาดาล!'
+                  : sourceKind === 'tempest_archon'
+                    ? '⚡ จ้าวพายุฟาดอสุนีพิพากษา!'
+                    : sourceKind === 'thunder_drake_emperor'
+                      ? '⚡ มังกรอสุนีฟาดมหาประจุดารา!'
+                      : sourceKind === 'volcano_colossus'
+                        ? '🌋 ยักษ์ภูเขาไฟทุบแมกมาพิโรธ!'
+                        : '💥 จ้าวอัคคีทุบพิพากษาเพลิง!';
           status.textContent = event.amount > 0
             ? `${skillName} เสีย ${event.amount} HP`
             : `${skillName} โล่ต้านไว้ได้ ${event.absorbed}`;
@@ -456,8 +674,26 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
           status.textContent = [
             event.absorbed > 0 ? `ป้องกัน ${event.absorbed}` : '',
             event.amount > 0 ? `เสีย ${event.amount} HP` : '',
+            event.manaDrain > 0 ? `สูบมานา −${event.manaDrain} MP` : '',
           ].filter(Boolean).join(' · ') || 'ศัตรูโจมตี 0 ดาเมจ';
         }
+        break;
+      }
+      case 'boss-phase': {
+        if (event.eternity) {
+          animEternityPhase = event.eternity.phase;
+          renderEternityMeter(event.eternity);
+          queueFxClassRestart($('eternity-meter'), ['is-shifting'], 'is-shifting');
+        }
+        audio.play('discover');
+        triggerCameraScreenShake('boss-ultimate', event.sourceKind ?? 'abyssal_kraken');
+        const phaseTheme = (event.sourceKind === 'eternity_overlord' || event.sourceKind === 'eternity_reborn')
+          ? (event.eternity?.phase === 2 ? 'ice' : 'grand')
+          : event.sourceKind === 'nether_dread_lord'
+            ? 'death'
+            : 'water';
+        pulseElementalOverlay(phaseTheme, 65, 58, { grand: true, withVignette: true });
+        status.textContent = event.label ?? '🐙 ร่างจริงของบอสปรากฏตัว!';
         break;
       }
       case 'mirror-reflect':
@@ -466,6 +702,16 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
         triggerEnemyCardFx(event.source, 'enemy-targeted-pulse');
         pulsePlayerHud(event.amount > 0 ? 'hit' : 'shield');
         status.textContent = event.amount > 0 ? `ม่านกระจกสะท้อน · เสีย ${event.amount} HP` : `โล่รับแรงสะท้อนกระจกได้ ${event.absorbed}`;
+        break;
+      case 'cosmic-echo':
+        changeAnimatedPlayerHp(-event.amount);
+        triggerCameraScreenShake(event.amount > 0 ? 'boss-heavy' : 'tremor', event.sourceKind ?? 'eternity_overlord');
+        triggerEnemyCardFx(event.source, 'enemy-targeted-pulse');
+        pulseElementalOverlay('grand', 16, 66);
+        pulsePlayerHud(event.amount > 0 ? 'hit' : 'shield');
+        status.textContent = event.amount > 0
+          ? `🌌 ม่านดาราจักรสะท้อน · เสีย ${event.amount} HP`
+          : `🌌 โล่รับแรงสะท้อนดาราจักรได้ ${event.absorbed}`;
         break;
       case 'ember-thorns':
         changeAnimatedPlayerHp(-event.amount);
@@ -476,14 +722,38 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
         break;
       case 'storm-static':
         changeAnimatedPlayerHp(-event.amount);
-        triggerCameraScreenShake(event.amount > 0 ? 'boss-heavy' : 'tremor', 'tempest_archon');
+        triggerCameraScreenShake(event.amount > 0 ? 'boss-heavy' : 'tremor', event.sourceKind ?? 'tempest_archon');
         triggerEnemyCardFx(event.source, 'enemy-targeted-pulse');
         pulsePlayerHud(event.amount > 0 ? 'hit' : 'shield');
-        status.textContent = event.amount > 0 ? `เกราะอสุนีช็อต · เสีย ${event.amount} HP` : `โล่กันเกราะอสุนีได้ ${event.absorbed}`;
+        status.textContent = event.sourceKind === 'thunder_drake_emperor'
+          ? (event.amount > 0 ? `เกราะประจุดาราช็อต · เสีย ${event.amount} HP` : `โล่กันเกราะประจุดาราได้ ${event.absorbed}`)
+          : (event.amount > 0 ? `เกราะอสุนีช็อต · เสีย ${event.amount} HP` : `โล่กันเกราะอสุนีได้ ${event.absorbed}`);
         break;
+      case 'nether-curse':
+        changeAnimatedPlayerHp(-event.amount);
+        triggerCameraScreenShake(event.amount > 0 ? 'boss-heavy' : 'tremor', 'nether_dread_lord');
+        triggerEnemyCardFx(event.source, 'enemy-targeted-pulse');
+        pulseElementalOverlay('death', 16, 66);
+        pulsePlayerHud(event.amount > 0 ? 'hit' : 'shield');
+        status.textContent = event.amount > 0
+          ? `💀 คำสาปห้ามร่ายซ้ำย้อนศร · เสีย ${event.amount} HP`
+          : `💀 โล่ต้านคำสาปห้ามร่ายซ้ำได้ ${event.absorbed}`;
+        break;
+      case 'buff': {
+        pulsePlayerHud('shield');
+        pulseElementalOverlay(event.element ?? event.families?.[0] ?? 'fire', 16, 66, {
+          grand: Boolean(event.grand),
+          large: Boolean(event.large),
+        });
+        const famText = (event.families ?? []).map(f => `${ELEMENT_ICONS[f] ?? ''}${ELEMENT_LABELS[f] ?? f}`).join('+');
+        status.textContent = `${WORDS[event.source]?.label ?? 'บัพ'}${famText} · พลังธาตุ +${event.pct}%${event.pierce ? ` เจาะ +${event.pierce}` : ''} (${event.turns} เทิร์น)`;
+        break;
+      }
       case 'mana-refund':
         pulsePlayerHud('shield');
-        status.textContent = `${RELIC_DRAFT_CATALOG.find(r => r.id === event.relicId)?.name ?? 'คาถา'} · คืนมานา +${event.amount}`;
+        status.textContent = event.restored
+          ? `เติมมานา +${event.amount} MP`
+          : `${RELIC_DRAFT_CATALOG.find(r => r.id === event.relicId)?.name ?? 'คาถา'} · คืนมานา +${event.amount}`;
         break;
       case 'relic': {
         audio.play('discover');
@@ -496,13 +766,23 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
       case 'charge': {
         const sourceEnemy = state?.enemies?.find(candidate => candidate.id === event.source);
         const sourceKind = event.sourceKind ?? sourceEnemy?.kind;
-        const isSpecialBoss = Boolean(event.specialBoss || sourceKind === 'ember_overlord' || sourceKind === 'tempest_archon');
+        const isSpecialBoss = Boolean(event.specialBoss || ['ember_overlord', 'tempest_archon', 'volcano_colossus', 'thunder_drake_emperor', 'abyssal_kraken', 'nether_dread_lord', 'eternity_overlord', 'eternity_reborn'].includes(sourceKind));
         if (isSpecialBoss) {
           triggerCameraScreenShake('boss-heavy', sourceKind);
           pulseBossUltimateImpact(sourceKind, 'charge', event.source);
-          status.textContent = sourceKind === 'tempest_archon'
-            ? '⚡ จ้าวพายุรวมประจุอสุนี · เตรียมฟาดมหาพิพากษา 20 ดาเมจ!'
-            : '🔥 จ้าวอัคคีหลอมแก่นเพลิง · เตรียมฟาดมหาประลัย 16 ดาเมจ!';
+          status.textContent = sourceKind === 'eternity_reborn'
+            ? '✨ มหาเทพจุตินิรันดร์รวบรวมดาราจักรดับสูญ · เตรียมซัดซูเปอร์โนวา 188 ดาเมจ!'
+            : sourceKind === 'eternity_overlord'
+              ? '🌌 มหาเทพอนันตกาลรวบรวมพลังงานกาลอวกาศ · เตรียมปลดปล่อยคลื่นทำลาย 152 ดาเมจ!'
+              : sourceKind === 'nether_dread_lord'
+                ? '💀 จอมอสูรนรกานต์รวบรวมเปลวเพลิงนรกานต์ · เตรียมซัด 128 ดาเมจ!'
+                : sourceKind === 'abyssal_kraken'
+                  ? '🌊 มหาคราเค่นรวบรวมคลื่นห้วงบาดาล · เตรียมซัดสึนามิ 108 ดาเมจ!'
+                  : sourceKind === 'tempest_archon'
+                    ? '⚡ จ้าวพายุรวมประจุอสุนี · เตรียมฟาดมหาพิพากษา 20 ดาเมจ!'
+                    : sourceKind === 'ember_overlord'
+                      ? '🔥 จ้าวอัคคีหลอมแก่นเพลิง · เตรียมฟาดมหาประลัย 16 ดาเมจ!'
+                      : (event.label ?? 'ศัตรูกำลังชาร์จ');
         } else {
           triggerCameraScreenShake('tremor');
           status.textContent = event.label ?? 'ศัตรูกำลังชาร์จ';
@@ -530,6 +810,98 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
                   ? 'พ่ายแพ้บอสชั้น 10 · ร่วงกลับจุดพักชั้น 9'
                   : 'พ่ายแพ้ในชั้น 5–8 · ร่วงกลับจุดพักชั้น 4 (เริ่ม 5-1 ใหม่)';
         break;
+      case 'summon':
+      case 'summon_invoke': {
+        animSummon = {
+          creatureId: event.creature,
+          name: event.name || WORDS[event.creature]?.label || event.creature,
+          element: event.element,
+          isGrand: Boolean(event.isGrand),
+          hp: event.hp,
+          maxHp: event.maxHp ?? event.hp,
+          armor: event.armor ?? 0,
+          ward: event.ward ?? 0,
+          counter: event.counter ?? 0,
+          strike: event.strike ?? 0,
+          aoeIntercept: Boolean(event.aoeIntercept),
+        };
+        const existingCard = $('enemy-list')?.querySelector?.('.summon-card');
+        existingCard?.remove();
+        syncAnimatedSummonCard('enemy-targeted-pulse');
+        pulseSpellSlotsElem(event.element ?? 'shield');
+        pulseElementalOverlay(event.element ?? 'shield', 28, 66, { grand: Boolean(event.isGrand) });
+        const elemName = event.element ? `ธาตุ${ELEMENT_LABELS[event.element] || WORDS[event.element]?.label || event.element}` : '';
+        status.textContent = `✨ อัญเชิญ ${animSummon.name}${elemName} (${animSummon.hp} HP) ยืนแนวหน้า`;
+        break;
+      }
+      case 'summon_hit': {
+        if (animSummon) {
+          animSummon.hp = Math.max(0, event.hpRemaining ?? (animSummon.hp - (event.damage ?? 0)));
+          syncAnimatedSummonCard('enemy-hit-shake');
+        }
+        status.textContent = `แนวหน้ารับการโจมตี −${event.damage ?? 0} HP${animSummon && animSummon.hp > 0 ? ` (เหลือ ${animSummon.hp}/${animSummon.maxHp})` : ''}`;
+        break;
+      }
+      case 'summon_counter':
+        status.textContent = event.blocked
+          ? 'สิ่งอัญเชิญสวนกลับ · ม่านศัตรูรับไว้'
+          : `⚡ สิ่งอัญเชิญสวนกลับ −${event.amount ?? 0} ดาเมจ`;
+        break;
+      case 'summon_strike':
+      case 'summon_relay':
+        status.textContent = event.blocked
+          ? 'สิ่งอัญเชิญออกหมัดประสาน · ม่านศัตรูรับไว้'
+          : `${event.relay ? '🔄 ส่งไม้ต่อ' : '⚔️ หมัดประสาน'} −${event.amount ?? 0} ดาเมจ`;
+        break;
+      case 'summon_rebirth': {
+        if (animSummon) {
+          animSummon.hp = event.hp ?? Math.ceil((animSummon.maxHp ?? 1) / 2);
+          syncAnimatedSummonCard('enemy-targeted-pulse');
+        }
+        status.textContent = `🔥 ฟีนิกซ์เกิดใหม่จากไข่ (${event.hp ?? animSummon?.hp ?? 0} HP)`;
+        break;
+      }
+      case 'summon_break':
+        animSummon = null;
+        syncAnimatedSummonCard();
+        status.textContent = '💥 สิ่งอัญเชิญแตกสลาย!';
+        break;
+      case 'summon_depart':
+        animSummon = null;
+        syncAnimatedSummonCard();
+        status.textContent = '✨ สิ่งอัญเชิญสิ้นสุดพันธสัญญาและสลายตัว';
+        break;
+      case 'dodge':
+        if (event.target === 'summon') {
+          syncAnimatedSummonCard('enemy-acting-lunge');
+          status.textContent = '💨 สิ่งอัญเชิญหลบการโจมตีได้!';
+        }
+        break;
+      case 'ward_absorb':
+        if (event.target === 'summon') {
+          if (animSummon) animSummon.ward = Math.max(0, (animSummon.ward ?? 0) - 1);
+          syncAnimatedSummonCard('enemy-targeted-pulse');
+          status.textContent = '🛡️ ม่านคุ้มภัยของสิ่งอัญเชิญรับการโจมตีไว้ได้!';
+        }
+        break;
+      case 'phoenix_revive':
+        animSummon = null;
+        syncAnimatedSummonCard();
+        if (event.hp) {
+          animPlayerHp = event.hp;
+          renderPlayerHp(animPlayerHp, animPlayerMaxHp);
+        }
+        pulsePlayerHud('heal');
+        status.textContent = '🔥 ฟีนิกซ์สละชีพชุบชีวิตผู้เล่นเต็มพลัง!';
+        break;
+      case 'cheat_death':
+        animSummon = null;
+        syncAnimatedSummonCard();
+        animPlayerHp = event.hp ?? 1;
+        renderPlayerHp(animPlayerHp, animPlayerMaxHp);
+        pulsePlayerHud('shield');
+        status.textContent = '👑 สิ่งอัญเชิญสละชีพรับความตายแทนผู้เล่น (เหลือ 1 HP)';
+        break;
       case 'room-clear':
         if (event.recovered) changeAnimatedPlayerHp(event.recovered);
         audio.play('win');
@@ -539,6 +911,21 @@ export function createBattleFxController({ getState, getTargetId, getSettings, g
         $('skip-animation').textContent = 'ไปต่อ';
         break;
     }
+  }
+
+  function showWardHit(event, label) {
+    const card = $(`target-${event.target}`);
+    const wardBadge = card?.querySelector('[data-ward-layers]');
+    const remaining = event.wardRemaining;
+    if (wardBadge && remaining > 0) wardBadge.textContent = `🔮 ม่าน ${remaining}`;
+    else wardBadge?.remove();
+    if (card?.hasAttribute('aria-label')) {
+      card.setAttribute('aria-label', card.getAttribute('aria-label').replace(/ม่าน \d+$/, `ม่าน ${remaining}`));
+    }
+    triggerEnemyCardFx(event.target, 'enemy-targeted-pulse');
+    spawnEnemyPop(event.target, label, 'ward');
+    const { x, y } = enemyImpactCoords(event.target);
+    pulseElementalOverlay('ward', x, y, { boosted: remaining === 0 });
   }
 
   return {

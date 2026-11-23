@@ -1,6 +1,11 @@
-import { WORDS, START_WORDS } from '../words.js';
+import { WORDS, START_WORDS, ELEMENT_LABELS } from '../words.js';
+import { ENEMY_TRAITS } from '../enemy-traits.js';
+import { ENDGAME_ENEMIES } from '../endgame-tower.js';
+import { ACHIEVEMENTS } from './storage-discovery.js';
 import {
-  HAND_LIMIT,
+  ENEMIES,
+  getHandLimit,
+  getMaxMana,
   MAX_BELT_ITEMS,
   MAX_STASH_ITEMS,
   MAX_CARD_UPGRADE,
@@ -12,6 +17,7 @@ import {
   getCardUpgradeLevel,
   hasCardSecondaryUpgrade,
   getCardUpgradeSuccessRate,
+  getCardUpgradeMaterial,
   getCardSecondaryTier,
   getCardSecondaryEffect,
   describeCardUpgradeEffect,
@@ -84,8 +90,9 @@ export function createModalsController(ctx) {
     if (grimoireTab === 'discovered') filtered = discoveredList;
     else if (grimoireTab === 'attack') filtered = MASTER_FORMULAS.filter(f => f.group === 'attack');
     else if (grimoireTab === 'defense') filtered = MASTER_FORMULAS.filter(f => f.group === 'defense');
+    else if (grimoireTab === 'summon') filtered = MASTER_FORMULAS.filter(f => f.group === 'summon');
 
-    const inBattle = screen === 'battle' && state?.phase === 'battle' && !busy && state.player.hand.length <= HAND_LIMIT;
+    const inBattle = screen === 'battle' && state?.phase === 'battle' && !busy && state.player.hand.length <= getHandLimit(state.player);
     $('grimoire-castable-label').hidden = !inBattle;
     const word = $('grimoire-word-filter').value;
     if (word) filtered = filtered.filter(f => f.phrase.includes(word));
@@ -107,6 +114,8 @@ export function createModalsController(ctx) {
     $('grimoire-page-number').textContent = `หน้า ${grimoirePage} / ${pageCount} · ${filtered.length} สูตร`;
     const first = (grimoirePage - 1) * GRIMOIRE_PAGE_SIZE;
     listEl.scrollTop = 0;
+    const tomePanel = $('tools-tome');
+    if (tomePanel) tomePanel.scrollTop = 0;
     listEl.innerHTML = filtered.slice(first, first + GRIMOIRE_PAGE_SIZE).map(f => {
       const discovered = ctx.accountDiscovered.has(f.key);
       const playableNow = castableOnly || inBattle && discovered && Boolean(canFormPhraseInHand(state, f.phrase));
@@ -157,9 +166,10 @@ export function createModalsController(ctx) {
     const sanctListText = sanctParts.join(', ');
     const clearedCount = (state.clearedRooms ?? []).length;
 
+    const maxMana = getMaxMana(p);
     heroEl.innerHTML = `
       <div class="inv-stat-chip"><strong>Lv.${p.level}</strong><span>✨ EXP ${p.exp}/${nextExp}</span></div>
-      <div class="inv-stat-chip"><strong>❤️ HP ${p.hp}/${p.maxHp}</strong><span>💧 MP ${p.mana}/${p.maxMana}</span></div>
+      <div class="inv-stat-chip"><strong>❤️ HP ${p.hp}/${p.maxHp}</strong><span>💧 MP ${p.mana}/${maxMana}</span></div>
       <div class="inv-stat-chip gold"><strong>💰 ${p.gold} ทอง</strong><span>🎒 ไอเทม ${p.items.length + p.stash.length}/${MAX_BELT_ITEMS + MAX_STASH_ITEMS} ชิ้น</span></div>
       <div class="inv-stat-chip ${sanctOk ? 'unlocked' : 'locked'}"><strong>${sanctOk ? `🔓 จุดพักเปิดแล้ว (${sanctListText})` : '🔒 ชั้นที่ 4 (ชั้นพัก) ล็อกอยู่'}</strong><span>${sanctOk ? 'เดินทางไปร้านค้า/ตีบวกได้' : `ต้องผ่านชั้น 1–3 ก่อน (${clearedCount}/${state.rooms.length} ห้อง)`}</span></div>
     `;
@@ -168,7 +178,7 @@ export function createModalsController(ctx) {
       const canUseItemNow = item => {
         if (!item || item.vaultOnly) return false;
         if (state.phase === 'battle') return true;
-        return Boolean(item.hpRestore || item.manaRestore);
+        return Boolean(!item.battleOnly && (item.hpRestore || item.manaRestore));
       };
 
       const beltGrid = Array.from({ length: MAX_BELT_ITEMS }, (_, idx) => {
@@ -220,7 +230,8 @@ export function createModalsController(ctx) {
         const secTier = getCardSecondaryTier(lv, Boolean(p.cardSecondaryUpgrades?.[id]));
         const secInfo = getCardSecondaryEffect(id, Math.max(CARD_SECONDARY_UNLOCK_LEVEL, lv));
         const inActiveDeck = p.words.includes(id);
-        const chancePercent = getCardUpgradeSuccessRate(lv, false);
+        const material = getCardUpgradeMaterial(state.player);
+        const chancePercent = getCardUpgradeSuccessRate(lv, Boolean(material), material?.bonus, id);
         return `<article class="inv-card-row ${lv > 0 || secUnlocked ? 'is-upgraded' : ''}" data-filter-card="${id}"><div class="inv-card-head"><span class="forge-card-icon">${icon(id)}</span><div><strong>${escape(word.label)}${lv > 0 ? ` +${lv}` : ''}</strong><small class="forge-deck-tag ${inActiveDeck ? 'active' : ''}">${inActiveDeck ? '✓ พกในสำรับต่อสู้' : 'เก็บในคลังสะสม'}</small></div><div class="forge-badges"><span class="forge-lv-pill ${lv > 0 ? 'has-lv' : ''}">+${lv}/${MAX_CARD_UPGRADE}</span>${lv < MAX_CARD_UPGRADE ? `<span class="forge-chance-pill">${chancePercent}% ที่แท่นตีบวก</span>` : ''}${secUnlocked ? `<span class="forge-sec-pill unlocked">ขั้น ${secTier}: ${escape(secInfo.badge)}</span>` : `<span class="forge-sec-pill locked">ปลดล็อกที่ +7: ${escape(secInfo.badge)}</span>`}</div></div><p class="forge-stat-desc">⚡ ${escape(lv > 0 ? describeCardUpgradeEffect(id, lv) : word.description)}</p></article>`;
       }).join('');
       bodyEl.innerHTML = `<div data-card-filter-panel="inventory">${cardFilterControls('inventory')}<div class="inv-cards-list">${cardsHtml}</div></div>`;
@@ -256,10 +267,107 @@ export function createModalsController(ctx) {
         <div class="sanctuary-relic-list">${blessingsHtml}</div>
       </section>
       <section class="inv-section">
-        <div class="inv-section-head"><h3>👑 ช่องเครื่องรางบอสชั้นลึก (ชั้น 10 / 20 / 30)</h3></div>
+        <div class="inv-section-head"><h3>👑 ช่องเครื่องรางบอสชั้นลึก (ชั้น 10–100)</h3></div>
         <div class="sanctuary-relic-list">${relicsHtml}</div>
       </section>
     `;
+  }
+
+  let bestiaryTab = 'all';
+
+  function renderBestiary() {
+    const listEl = $('bestiary-list');
+    const progressText = $('bestiary-progress-text');
+    const progressBar = $('bestiary-progress-bar');
+    if (!listEl) return;
+    const accountBestiary = ctx.getAccountBestiary?.() ?? new Set();
+
+    const allKinds = Object.keys(ENEMIES);
+    let filteredKinds = allKinds;
+    if (bestiaryTab === 'bosses') {
+      filteredKinds = allKinds.filter(k => ENEMIES[k].isBoss);
+    } else if (bestiaryTab === 'endgame') {
+      filteredKinds = allKinds.filter(k => Object.hasOwn(ENDGAME_ENEMIES, k));
+    }
+
+    const discoveredCount = allKinds.filter(k => accountBestiary.has(k)).length;
+    const totalCount = allKinds.length;
+    const pct = totalCount ? Math.round((discoveredCount / totalCount) * 100) : 0;
+    if (progressText) progressText.textContent = `ค้นพบอสูร ${discoveredCount} / ${totalCount} ชนิด (${pct}%)`;
+    if (progressBar) progressBar.style.width = `${pct}%`;
+
+    const tabsEl = $('bestiary-tabs');
+    if (tabsEl) {
+      for (const btn of tabsEl.querySelectorAll('[data-bestiary-tab]')) {
+        const tab = btn.dataset.bestiaryTab;
+        const active = tab === bestiaryTab;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-selected', String(active));
+      }
+    }
+
+    listEl.innerHTML = filteredKinds.map(kind => {
+      const e = ENEMIES[kind];
+      const trait = ENEMY_TRAITS[kind];
+      const discovered = accountBestiary.has(kind);
+      const aff = e.affinity ? `<span class="elem-badge elem-${e.affinity}">${ELEMENT_LABELS[e.affinity] ?? e.affinity}</span>` : '<span class="elem-badge elem-none">ไร้ธาตุ</span>';
+      if (!discovered) {
+        return `<div class="bestiary-card is-undiscovered">
+          <div class="bestiary-head">
+            <span class="bestiary-icon">❓</span>
+            <strong>???</strong>
+            <small class="muted">${e.isBoss ? 'บอส' : 'อสูรทั่วไป'}</small>
+          </div>
+          <p class="bestiary-desc muted">ยังไม่เคยเผชิญหน้าในหอคอย</p>
+        </div>`;
+      }
+      return `<div class="bestiary-card is-discovered ${e.isBoss ? 'is-boss' : ''}">
+        <div class="bestiary-head">
+          <span class="bestiary-icon">${e.isBoss ? '👑' : '👾'}</span>
+          <strong>${escape(e.name)}</strong>
+          ${aff}
+        </div>
+        <div class="bestiary-stats">
+          <span>HP <strong>${e.hp}</strong></span>
+          <span>เกราะ <strong>${e.armor}</strong></span>
+          <span>ม่าน <strong>${e.ward}</strong></span>
+          <small class="badge-role">${escape(trait?.role ?? 'ศัตรู')}</small>
+        </div>
+        <div class="bestiary-trait">
+          <p>${typeof trait?.passive === 'function' ? escape(trait.passive()) : 'มีพฤติกรรมการโจมตีเฉพาะตัว'}</p>
+          ${trait?.counter ? `<p class="bestiary-counter">💡 <em>แก้ทาง:</em> ${escape(trait.counter)}</p>` : ''}
+        </div>
+        <div class="bestiary-foot">
+          <span class="tag-defeated">✓ บันทึกข้อมูลแล้ว</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderAchievements() {
+    const listEl = $('achievements-list');
+    const progressText = $('achievements-progress-text');
+    const progressBar = $('achievements-progress-bar');
+    if (!listEl) return;
+    const accountAchievements = ctx.getAccountAchievements?.() ?? new Set();
+
+    const unlockedCount = ACHIEVEMENTS.filter(a => accountAchievements.has(a.id)).length;
+    const totalCount = ACHIEVEMENTS.length;
+    const pct = totalCount ? Math.round((unlockedCount / totalCount) * 100) : 0;
+    if (progressText) progressText.textContent = `ปลดล็อก ${unlockedCount} / ${totalCount} ความสำเร็จ (${pct}%)`;
+    if (progressBar) progressBar.style.width = `${pct}%`;
+
+    listEl.innerHTML = ACHIEVEMENTS.map(a => {
+      const unlocked = accountAchievements.has(a.id);
+      return `<div class="achievement-card ${unlocked ? 'is-unlocked' : 'is-locked'}">
+        <span class="achievement-icon" aria-hidden="true">${unlocked ? a.icon : '🔒'}</span>
+        <div class="achievement-info">
+          <strong>${escape(a.name)}</strong>
+          <p>${escape(a.desc)}</p>
+          <span class="achievement-status">${unlocked ? '✓ สำเร็จแล้ว' : 'ยังไม่ปลดล็อก'}</span>
+        </div>
+      </div>`;
+    }).join('');
   }
 
   function selectSurfaceTab(tab) {
@@ -275,6 +383,10 @@ export function createModalsController(ctx) {
     if (tab.id === 'tools-tome-tab') {
       if (screen !== 'battle') $('quick-combos').hidden = true;
       renderGrimoire();
+    } else if (tab.id === 'tools-bestiary-tab') {
+      renderBestiary();
+    } else if (tab.id === 'tools-achievements-tab') {
+      renderAchievements();
     } else if (tab.id === 'tools-bag-tab') {
       renderItemBelt({ state, screen, busy });
       renderInventoryModal();
@@ -284,6 +396,8 @@ export function createModalsController(ctx) {
       ctx.renderLog();
     }
     if (tab.closest('#battle-tools')) $('tools-title').textContent = tab.textContent;
+    const activePanel = $(tab.getAttribute('aria-controls'));
+    if (activePanel) activePanel.scrollTop = 0;
   }
 
   function openTools(name, showHandFormulas = false) {
@@ -299,6 +413,15 @@ export function createModalsController(ctx) {
 
   function initStaticGuide() {
     $('word-guide').innerHTML = Object.entries(WORDS).map(([id, word]) => `<div class="guide-word word-${id}">${icon(id)}<strong>${word.label}</strong><div><p>${word.description}</p><small>${word.formula}</small> ${rarityBadge(word)}</div></div>`).join('');
+    const bestiaryTabs = $('bestiary-tabs');
+    if (bestiaryTabs) {
+      bestiaryTabs.addEventListener('click', event => {
+        const btn = event.target.closest('[data-bestiary-tab]');
+        if (!btn) return;
+        bestiaryTab = btn.dataset.bestiaryTab;
+        renderBestiary();
+      });
+    }
     const grimoireWordFilter = $('grimoire-word-filter');
     for (const [id, word] of Object.entries(WORDS)) grimoireWordFilter.add(new Option(word.label, id));
     for (const control of [grimoireWordFilter, $('grimoire-castable')]) {
@@ -337,6 +460,8 @@ export function createModalsController(ctx) {
     updateGuideButtonBadge,
     renderGrimoire,
     renderInventoryModal,
+    renderBestiary,
+    renderAchievements,
     selectSurfaceTab,
     openTools,
     setGrimoireTab: tab => { grimoireTab = tab; grimoirePage = 1; },

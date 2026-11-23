@@ -1,5 +1,11 @@
 const paths = {
+  axe: 'M6 1h7v2h2v5h-2v2H9V8H7l-5 7H0v-2l6-7z',
+  timestop: 'M5 1h6l4 4v6l-4 4H5l-4-4V5zm1 2L3 6v4l3 3h4l3-3V6l-3-3zm1 1h2v4h3v2H7z',
+  ascension: 'M7 0h2v3h3v3h3v2h-3v3H9v4H7v-4H4V8H1V6h3V3h3zm1 4L5 7l3 3 3-3z',
+  light: 'M12 1h3v4h-2v2h-2v2H9v2H6v2H4v2H1v-2h2v-2h2V8h2V5h2V3h3z M6 11h3v2H6z',
+  delay: 'M3 1h10v2h-1v3l-3 2 3 2v3h1v2H3v-2h1v-3l3-2-3-2V3H3zm3 2v2l2 2 2-2V3zm2 7-2 2v1h4v-1z',
   shot: 'M5 2h6v2h2v2h2v4h-2v2h-2v2H5v-2H3v-2H1V6h2V4h2z',
+  chakram: 'M6 0h4v2h2v1l3-1v4h-1v4h1v4l-3-1v1h-2v2H6v-2H4v-1l-3 1v-4h1V6H1V2l3 1V2h2zm0 5v6h4V5z',
   beam: 'M1 7h14v2H1z',
   wave: 'M1 5h4V3h4v2h6v2H8V5H6v2H1zm0 6h4V9h4v2h6v2H8v-2H6v2H1z',
   storm: 'M5 1h9v2H6v2H3v3h9V6H7V4h6v1h2v4h-2v1H3V9H1V5h2V3h2zm-2 11h10v2H7v1H3z',
@@ -10,6 +16,7 @@ const paths = {
   meteor: 'M12 0h3l-4 6 3 3v4l-3 3H6l-3-3V9l3-3 4-6zm-6 1h2L4 6H2z',
   veil: 'M6 1h4v2h3v2h2v8H1V5h2V3h3zm0 4v2H4v4h8V7h-2V5z',
   pair: 'M3 2h4v12H3zm6 0h4v12H9z',
+  barrage: 'M1 2h2v12H1zm3 0h2v12H4zm3 0h2v12H7zm3 0h2v12h-2zm3 0h2v12h-2z',
   blast: 'M7 0h2v4l3-3 2 2-3 3h5v3h-5l3 3-2 2-3-3v5H7v-5l-3 3-2-2 3-3H0V6h5L2 3l2-2 3 3z',
   fire: 'M8 1h2v4h2v2h2v5h-2v2H4v-2H2V8h2V5h2v4h2V6H7V3h1zm0 8H6v3h4v-2H8z',
   ice: 'M7 0h2v4l3-3 2 2-3 3h5v2h-5l3 3-2 2-3-3v5H7v-5l-3 3-2-2 3-3H0V6h5L2 3l2-2 3 3z',
@@ -60,6 +67,12 @@ const paths = {
   seal: 'M3 2h10v2h-2v8h2v2H3v-2h2V4H3zm4 2v8h2V4z',
   dispel: 'M7 1h2v5h5v2H9v5H7V8H2V6h5zm-5 1h2v2H2zm10 8h2v2h-2z',
   brace: 'M2 2h12v8h-2v2h-2v2H6v-2H4v-2H2zm3 3v4h2v2h2V9h2V5z',
+  spear: 'M11 1h4v4h-2v1h-1v1h-1v1h-1v1H9v1H8v1H7v1H6v1H5v1H3v1H1v-2h1v-2h1v-1h1V9h1V8h1V7h1V6h1V5h1V4h1V3h1z',
+  empower: 'M7 1h2v2h2v2h2v2h-3v7H6V7H3V5h2V3h2zm0 8v3h2V9z',
+  bless: 'M7 0h2v3h1v1h2V3h1v3h3v2h-3v1h-1v2h1v1h-3v4H7v-4H4v-1h1V9H4V8H1V6h3V3h1v1h2V3h0zm0 6v3h2V6z',
+  fill: 'M5 1h6v2H9v2h3v2h2v6h-2v2H4v-2H2V7h2V5h3V3H5zm-1 7v5h8V8z',
+  blood: 'M7 1h2v3h2v3h2v4l-2 3H5l-2-3V7h2V4h2zm-1 8v2h2V9z',
+  summon: 'M8 0l2 5h5l-4 3 2 6-5-3-5 3 2-6-4-3h5z',
 };
 export function icon(id, extra = '') {
   return `<svg class="icon ${extra}" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="${paths[id] || paths.mana}"/></svg>`;

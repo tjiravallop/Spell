@@ -1,12 +1,14 @@
-import { ATTACK_FORMS, ELEMENTS, WORDS, START_WORDS, LARGE_SHIELD_HP, getSpellCatalog } from './words.js';
-import { RIFT_ENEMIES } from './upper-tower.js';
+import { ATTACK_FORMS, BATTLE_LIMITED_WORDS, ELEMENTS, WORDS, START_WORDS, LARGE_SHIELD_HP, getSpellCatalog } from './words.js';
 import {
   ENEMIES,
-  HAND_LIMIT,
+  getHandLimit,
+  getMaxMana,
+  hasValidDeckCore,
   MAX_MANA,
   TURN_DRAW,
   SHOP_ITEMS,
   MAX_BELT_ITEMS,
+  MAX_DECK_PRESETS,
   MAX_RELIC_SLOTS,
   MAX_CARD_UPGRADE,
   FLOOR21_START_ROOM,
@@ -18,6 +20,10 @@ import {
   FLOOR80_BOSS_ROOM,
   FLOOR90_BOSS_ROOM,
   FLOOR100_BOSS_ROOM,
+  ETERNITY_PHASE_HP,
+  encounterMaxHp,
+  getEternityShiftAffinity,
+  checkEternityPhase2,
   TOTAL_TOWER_ROOMS,
   UPPER_RESTS,
   openHand,
@@ -30,19 +36,59 @@ import {
   offerMissedElementReward,
   fillRewardChoices,
   grantBossRelic,
+  clearLostRunProgress,
+  repairEarlyDeck,
+  RIFT_TIERS,
 } from './run.js';
 
 export const SAVE_KEY = 'spell-foundry.run.v2';
 export const BACKUP_KEY = 'spell-foundry.backup.v2';
 export const SETTINGS_KEY = 'spell-foundry.settings.v1';
 export const PROFILE_KEY = 'spell-foundry.profile.v1';
-export const DEFAULT_SETTINGS = { music: 0.35, sfx: 0.65, ui: 0.45, reducedMotion: false, tips: true };
+export const DEFAULT_SETTINGS = { music: 0.35, sfx: 0.65, ui: 0.45, muted: false, musicEnabled: true, sfxEnabled: true, reducedMotion: false, tips: true, combatSpeed: 1 };
 const integer = (value, min, max) => Number.isSafeInteger(value) && value >= min && value <= max;
 const phases = ['battle', 'reward', 'loadout', 'sanctuary', 'won', 'lost'];
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 // Shield upgrades add twice their level, and veil/grand/rift/worldloom add their own bonuses.
-const maxShieldLayerHp = 300;
-const previousRiftBossHp = { gate_weaver: 190, mirror_regent: 235, seam_warden: 270, loom_sovereign: 330 };
+const maxShieldLayerHp = 600;
+const shieldEffects = [null, ...ELEMENTS, 'blast', 'akki-blast', 'brace', 'veil'];
+const previousEnemyHp = {
+  gate_weaver: [190],
+  mirror_regent: [235],
+  seam_warden: [270],
+  loom_sovereign: [330],
+  abyss_crawler: [85],
+  hydra_serpent: [75],
+  leviathan_tide: [360],
+  magma_tortoise: [95, 74],
+  cinder_drake: [82, 68],
+  volcano_colossus: [580, 380],
+  gale_harpy: [88],
+  cloud_elemental: [98],
+  storm_roc: [420],
+  sand_stalker: [92],
+  spark_wraith: [84],
+  thunder_drake_emperor: [640],
+  frost_crystal_golem: [110],
+  blizzard_wolf: [96],
+  glacial_hydra: [480],
+  venom_spore_beast: [105],
+  crag_titan_sentinel: [125],
+  ancient_chitin_behemoth: [700],
+  solar_sentinel: [115],
+  radiant_phoenix: [100],
+  sun_archon: [520],
+  dread_reaper: [118],
+  void_devourer: [130],
+  nether_dread_lord: [760],
+  chaos_weaver: [128],
+  astral_chimera: [140],
+  primordial_avatar: [580],
+  zenith_templar: [145],
+  chronos_keeper: [135],
+  eternity_overlord: [880, 6500, 10000],
+  eternity_reborn: [5500, 3500],
+};
 
 export function validateRun(state) {
   const invalid = () => { throw new Error('ข้อมูลเซฟไม่ครบหรือมีค่าไม่ถูกต้อง'); };
@@ -54,14 +100,19 @@ export function validateRun(state) {
   if (state.magmaPuddles !== undefined && (state.phase !== 'battle' || !Array.isArray(state.magmaPuddles)
     || new Set(state.magmaPuddles).size !== state.magmaPuddles.length || state.magmaPuddles.some(slot => !integer(slot, 0, 4)))) invalid();
   if (state.blackhole !== undefined && (state.phase !== 'battle' || !object(state.blackhole)
-    || !integer(state.blackhole.slot, 0, 4) || !integer(state.blackhole.power, 30, 30 + MAX_CARD_UPGRADE))) invalid();
+    || !integer(state.blackhole.slot, 0, 4) || !integer(state.blackhole.power, 30, 3000))) invalid();
+  if (state.krakenPhase !== undefined && (state.phase !== 'battle' || state.krakenPhase !== 2)) invalid();
+  if (state.netherPhase !== undefined && (state.phase !== 'battle' || state.netherPhase !== 2)) invalid();
+  if (state.eternityPhase !== undefined && (state.phase !== 'battle' || state.room !== FLOOR100_BOSS_ROOM || state.rift || ![2, 3].includes(state.eternityPhase))) invalid();
+  if (state.summon !== undefined && state.summon !== null && (state.phase !== 'battle' || !object(state.summon) || typeof state.summon.creatureId !== 'string' || !integer(state.summon.hp, 0, 10000))) invalid();
   if (!Array.isArray(state.rooms) || state.rooms.length < 1 || state.room >= state.rooms.length || state.rooms.some(room => !Array.isArray(room) || room.length < 1 || room.length > 4 || room.some(kind => !Object.hasOwn(ENEMIES, kind)))) invalid();
   const words = (list, min, max) => Array.isArray(list) && integer(list.length, min, max) && new Set(list).size === list.length && list.every(id => Object.hasOwn(WORDS, id));
   const maxUnlockableWords = Object.keys(WORDS).length - START_WORDS.length;
   if (!words(state.collection, 0, maxUnlockableWords) || state.collection.some(id => START_WORDS.includes(id))) invalid();
   if (!words(state.learned, 0, maxUnlockableWords) || state.learned.some(id => !state.collection.includes(id))) invalid();
   const p = state.player;
-  if (!object(p) || !integer(p.maxHp, 36, 5000) || !integer(p.hp, 0, p.maxHp) || !integer(p.maxMana, 10, 412) || !integer(p.mana, 0, p.maxMana)) invalid();
+  if (!object(p) || !integer(p.maxHp, 36, 5000) || !integer(p.hp, 0, p.maxHp) || !integer(p.maxMana, 10, 412) || !integer(p.mana, 0, getMaxMana(p))) invalid();
+  if (p.summon !== undefined && p.summon !== null && (state.phase !== 'battle' || !object(p.summon) || typeof p.summon.creatureId !== 'string' || !integer(p.summon.hp, 0, 10000))) invalid();
   if (!words(p.words, 5, 7) || p.words.some(id => !START_WORDS.includes(id) && !state.collection.includes(id))) invalid();
   if (p.level !== undefined && !integer(p.level, 1, 1000)) invalid();
   if (p.exp !== undefined && !integer(p.exp, 0, 1000000)) invalid();
@@ -88,33 +139,90 @@ export function validateRun(state) {
   if (state.sanctuary19Unlocked !== undefined && typeof state.sanctuary19Unlocked !== 'boolean') invalid();
   if (state.sanctuaryPost20Unlocked !== undefined && typeof state.sanctuaryPost20Unlocked !== 'boolean') invalid();
   if (state.purchasedShopItems !== undefined && (!Array.isArray(state.purchasedShopItems) || state.purchasedShopItems.length > Object.keys(SHOP_ITEMS).length || state.purchasedShopItems.some(id => !Object.hasOwn(SHOP_ITEMS, id)))) invalid();
+  if (state.riftProgressFloor !== undefined && !integer(state.riftProgressFloor, 0, 100)) invalid();
+  if (state.riftDaily !== undefined && state.riftDaily !== null) {
+    if (!object(state.riftDaily) || typeof state.riftDaily.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(state.riftDaily.date) || !integer(state.riftDaily.used, 0, 1000)) invalid();
+  }
+  if (state.rift !== undefined) {
+    const r = state.rift;
+    const validSanctuary = v => [4, 5, 9, 14, 15, 19, 25, 35, 45, 55, 65, 75, 85, 95].includes(v)
+      || (typeof v === 'string' && (v.startsWith('pre') || v.startsWith('post')));
+    if (
+      state.phase !== 'battle'
+      || !object(r)
+      || !RIFT_TIERS.includes(r.tier)
+      || !integer(r.stage, 0, 2)
+      || !Array.isArray(r.stageRooms)
+      || r.stageRooms.length !== 3
+      || r.stageRooms.some(idx => !integer(idx, 0, state.rooms.length - 1))
+      || state.room !== r.stageRooms[r.stage]
+      || !integer(r.returnRoom, 0, state.rooms.length - 1)
+      || !validSanctuary(r.returnSanctuaryFloor)
+    ) invalid();
+  }
+  if (state.replayReturn !== undefined) {
+    const rr = state.replayReturn;
+    const validSanctuary = v => [4, 5, 9, 14, 15, 19, 25, 35, 45, 55, 65, 75, 85, 95].includes(v)
+      || (typeof v === 'string' && (v.startsWith('pre') || v.startsWith('post')));
+    if (
+      state.phase !== 'battle'
+      || !object(rr)
+      || !integer(rr.room, 0, state.rooms.length - 1)
+      || !validSanctuary(rr.sanctuaryFloor)
+    ) invalid();
+  }
   if (p.shield !== null) {
     const shield = p.shield;
-    if (!object(shield) || ![null, ...ELEMENTS, 'blast', 'akki-blast', 'brace', 'veil'].includes(shield.effect) || typeof shield.triggered !== 'boolean' || !integer(shield.expires, state.turn, state.turn + 1) || !Array.isArray(shield.layers) || !integer(shield.layers.length, 1, 2) || shield.layers.some(amount => !integer(amount, 1, maxShieldLayerHp))) invalid();
+    if (!object(shield) || !shieldEffects.includes(shield.effect) || typeof shield.triggered !== 'boolean' || !integer(shield.expires, state.turn, state.turn + 1) || !Array.isArray(shield.layers) || !integer(shield.layers.length, 1, shield.layerDetails ? 12 : 2) || shield.layers.some(amount => !integer(amount, 1, maxShieldLayerHp))) invalid();
+    if (shield.layerDetails !== undefined && (shield.layerEffects !== undefined || !Array.isArray(shield.layerDetails)
+      || shield.layerDetails.length !== shield.layers.length || shield.layerDetails.some(layer => !object(layer)
+        || !shieldEffects.includes(layer.effect) || !integer(layer.expires, state.turn, state.turn + 1)
+        || typeof layer.triggered !== 'boolean' || (layer.elements !== undefined && (layer.effect !== null
+          || !Array.isArray(layer.elements) || !integer(layer.elements.length, 1, 2)
+          || new Set(layer.elements).size !== layer.elements.length || layer.elements.some(id => !ELEMENTS.includes(id))))))) invalid();
     if (shield.layerEffects !== undefined && (shield.effect !== null || !Array.isArray(shield.layerEffects) ||
         shield.layerEffects.length !== shield.layers.length || shield.layerEffects.some(layer => !object(layer) ||
           typeof layer.triggered !== 'boolean' || !Array.isArray(layer.elements) ||
           layer.elements.length < 1 || layer.elements.length > 2 ||
           new Set(layer.elements).size !== layer.elements.length || layer.elements.some(id => !ELEMENTS.includes(id))))) invalid();
   }
-  if (!Array.isArray(state.enemies) || state.enemies.length !== state.rooms[state.room].length) invalid();
+  const completedEternity = state.room === FLOOR100_BOSS_ROOM && !state.rift
+    && (state.phase === 'won' || state.phase === 'sanctuary')
+    && state.enemies?.length === 1 && state.enemies[0]?.kind === 'eternity_reborn' && state.enemies[0]?.hp === 0;
+  const completedKraken = state.room === FLOOR80_BOSS_ROOM && !state.rift
+    && state.phase === 'sanctuary' && state.enemies?.length === 1
+    && state.enemies[0]?.kind === 'abyssal_kraken' && state.enemies[0]?.hp === 0;
+  const expectedKinds = state.krakenPhase === 2 || completedKraken
+    ? ['abyssal_kraken']
+    : (state.eternityPhase === 3 || completedEternity)
+      ? ['eternity_reborn']
+      : state.rooms[state.room];
+  if (!Array.isArray(state.enemies) || state.enemies.length !== expectedKinds.length) invalid();
   const slots = new Set();
   state.enemies.forEach((enemy, index) => {
-    if (!object(enemy) || enemy.id !== `enemy-${index}` || enemy.kind !== state.rooms[state.room][index]) invalid();
+    if (!object(enemy) || enemy.id !== `enemy-${index}` || enemy.kind !== expectedKinds[index]) invalid();
     if (enemy.sealed !== undefined && typeof enemy.sealed !== 'boolean') invalid();
     if (enemy.lastingChill !== undefined && typeof enemy.lastingChill !== 'boolean') invalid();
+    if (enemy.lingeringBurn !== undefined && typeof enemy.lingeringBurn !== 'boolean') invalid();
     if (enemy.obscured !== undefined && typeof enemy.obscured !== 'boolean') invalid();
     if (enemy.readForm !== undefined && (!ENEMIES[enemy.kind].repeatReduction
       || ![...ATTACK_FORMS, 'blast', 'blackhole', 'meteor'].includes(enemy.readForm))) invalid();
-    if (enemy.wetUntil !== undefined && !integer(enemy.wetUntil, state.turn, state.turn + 1)) invalid();
+    if (enemy.wetUntil !== undefined && !integer(enemy.wetUntil, state.turn, state.turn + 2)) invalid();
     if (enemy.magmaArmorUntil !== undefined && !integer(enemy.magmaArmorUntil, state.turn, state.turn + 1)) invalid();
+    if (enemy.abyssalShockUntil !== undefined && !integer(enemy.abyssalShockUntil, state.turn, state.turn + 1)) invalid();
+    if (enemy.netherPurgeUntil !== undefined && !integer(enemy.netherPurgeUntil, state.turn, state.turn + 1)) invalid();
+    if (enemy.netherExposedTurn !== undefined && !integer(enemy.netherExposedTurn, state.turn, state.turn + 1)) invalid();
+    if (enemy.eternityShatterUntil !== undefined && !integer(enemy.eternityShatterUntil, state.turn, state.turn + 1)) invalid();
+    if (enemy.eternityAbsorbed !== undefined && !integer(enemy.eternityAbsorbed, 0, 3)) invalid();
+    if (enemy.groundedUntil !== undefined && !integer(enemy.groundedUntil, state.turn, state.turn + 1)) invalid();
     if (enemy.earthArmorUntil !== undefined && !integer(enemy.earthArmorUntil, state.turn, state.turn + 1)) invalid();
     if (enemy.earthArmorShred !== undefined && !integer(enemy.earthArmorShred, 1, 2)) invalid();
     if (enemy.permanentArmorShred !== undefined && !integer(enemy.permanentArmorShred, 0, 10)) invalid();
-    if (enemy.healCutUntil !== undefined && !integer(enemy.healCutUntil, state.turn, state.turn + 1)) invalid();
-    const legacyBossHp = previousRiftBossHp[enemy.kind];
-    if ((enemy.maxHp !== ENEMIES[enemy.kind].hp && (legacyBossHp === undefined || enemy.maxHp !== legacyBossHp))
-      || !integer(enemy.hp, 0, enemy.maxHp) || !integer(enemy.armor, 0, 10) || !integer(enemy.ward, 0, 3) || !integer(enemy.slot, 0, 4) || !integer(enemy.chill, 0, 40000) || !integer(enemy.freeze, 0, 10000) || !integer(enemy.burn, 0, 60) || !integer(enemy.burnTurn, 0, state.turn + 1)) invalid();
+    if (enemy.summonWardBreakUntil !== undefined && !integer(enemy.summonWardBreakUntil, state.turn, state.turn + 1)) invalid();
+    if (enemy.healCutUntil !== undefined && !integer(enemy.healCutUntil, state.turn, state.turn + 2)) invalid();
+    const legacyHpList = previousEnemyHp[enemy.kind];
+    if ((enemy.maxHp !== encounterMaxHp(enemy.kind, state.room) && (!legacyHpList || !legacyHpList.includes(enemy.maxHp)))
+      || !integer(enemy.hp, 0, enemy.maxHp) || !integer(enemy.armor, 0, 10) || !integer(enemy.ward, 0, 3) || !integer(enemy.slot, 0, 4) || !integer(enemy.chill, 0, 40000) || !integer(enemy.freeze, 0, 10000) || !integer(enemy.burn, 0, 500) || !integer(enemy.burnTurn, 0, state.turn + 1)) invalid();
     if (enemy.hp > 0) {
       if (slots.has(enemy.slot)) invalid();
       slots.add(enemy.slot);
@@ -133,20 +241,40 @@ export function validateRun(state) {
     && !(state.phase === 'reward' && state.room >= FLOOR21_START_ROOM)
     || state.phase === 'loadout' && state.room === state.rooms.length - 1
     || state.phase === 'won' && ![8, state.rooms.length - 1].includes(state.room)) invalid();
-  if (!p.words.some(id => ATTACK_FORMS.includes(id)) || !p.words.some(id => ELEMENTS.includes(id))) invalid();
+  if (!hasValidDeckCore(p.words)) invalid();
+  if (p.deckPresets !== undefined) {
+    if (!Array.isArray(p.deckPresets) || p.deckPresets.length > MAX_DECK_PRESETS) invalid();
+    for (const preset of p.deckPresets) {
+      if (preset === null) continue;
+      if (!object(preset) || typeof preset.name !== 'string' || preset.name.length > 40) invalid();
+      if (!words(preset.words, 5, 7) || preset.words.some(id => !START_WORDS.includes(id) && !state.collection.includes(id)) || !hasValidDeckCore(preset.words)) invalid();
+    }
+  }
   if (state.rulesVersion === 2) {
     openHand(state);
     state.rulesVersion = 3;
   }
-  if (!integer(state.handRng, 1, 4294967295) || !Array.isArray(p.hand) || p.hand.length > HAND_LIMIT + (state.phase === 'battle' ? TURN_DRAW : 0) || p.hand.some(id => !p.words.includes(id))) invalid();
+  if (!integer(state.handRng, 1, 4294967295) || !Array.isArray(p.hand) || p.hand.length > getHandLimit(p) + (state.phase === 'battle' ? TURN_DRAW : 0) || p.hand.some(id => !p.words.includes(id))) invalid();
   if (state.deathSpent !== undefined && (state.deathSpent !== true || state.phase !== 'battle'
       || !p.words.includes('death') || p.hand.includes('death'))) invalid();
+  if (state.legendaryTurns !== undefined && (state.phase !== 'battle' || !object(state.legendaryTurns)
+      || Object.entries(state.legendaryTurns).some(([id, castTurn]) =>
+        !BATTLE_LIMITED_WORDS.includes(id) || !integer(castTurn, 1, state.turn - 1) || !p.words.includes(id) || p.hand.includes(id)))) invalid();
   if (p.maxMana === 10) {
     p.mana += MAX_MANA - p.maxMana;
     p.maxMana = MAX_MANA;
   }
   if (p.cardUpgrades !== undefined && (!object(p.cardUpgrades) || Object.entries(p.cardUpgrades).some(([k, v]) => !Object.hasOwn(WORDS, k) || !integer(v, 0, 10)))) invalid();
   if (p.cardSecondaryUpgrades !== undefined && (!object(p.cardSecondaryUpgrades) || Object.entries(p.cardSecondaryUpgrades).some(([k, v]) => !Object.hasOwn(WORDS, k) || typeof v !== 'boolean'))) invalid();
+  if (p.elementBuffs !== undefined) {
+    const validFamilies = ['fire', 'ice', 'lightning', 'earth', 'water', 'wind'];
+    if (!object(p.elementBuffs) || Object.entries(p.elementBuffs).some(([fam, buff]) => !validFamilies.includes(fam)
+      || !object(buff)
+      || !integer(buff.pct, 1, 500)
+      || !integer(buff.expires, state.turn, state.turn + 10)
+      || !['empower', 'bless'].includes(buff.source)
+      || (buff.pierceBonus !== undefined && !integer(buff.pierceBonus, 0, 10)))) invalid();
+  }
   p.level ??= 1;
   p.exp ??= 0;
   p.gold ??= 0;
@@ -156,17 +284,23 @@ export function validateRun(state) {
   p.blessings ??= [];
   p.cardUpgrades ??= {};
   p.cardSecondaryUpgrades ??= {};
+  p.elementBuffs ??= {};
   state.clearedRooms ??= [];
   state.rewardedBossRooms ??= [];
   state.highestRoom ??= state.room;
   state.sanctuaryRested ??= false;
-  state.sanctuaryFloor ??= 4;
+  const legacyRest = { 4: 5, 9: 'pre10', 14: 15, 19: 'pre20' };
+  state.sanctuaryFloor = legacyRest[state.sanctuaryFloor] ?? state.sanctuaryFloor ?? 5;
+  const mislabeledRest = /^post([2-9])5$/.exec(state.sanctuaryFloor);
+  if (mislabeledRest) state.sanctuaryFloor = `post${mislabeledRest[1]}0`;
   state.sanctuary9Unlocked ??= false;
   state.sanctuaryPost10Unlocked ??= false;
   state.sanctuary14Unlocked ??= false;
   state.sanctuary19Unlocked ??= false;
   state.sanctuaryPost20Unlocked ??= false;
   state.purchasedShopItems ??= [];
+  state.riftProgressFloor ??= 0;
+  state.riftDaily ??= null;
   return state;
 }
 
@@ -195,7 +329,17 @@ export function loadRun(storage) {
       if (!raw) continue;
       hadData = true;
       try {
-        const state = validateRun(JSON.parse(raw));
+        const decoded = JSON.parse(raw);
+        if (object(decoded) && object(decoded.player)) {
+          const summon = decoded.player.summon ?? decoded.summon;
+          if (summon && (decoded.phase !== 'battle' || decoded.turn === 1 || summon.turnCreated > decoded.turn)) {
+            delete decoded.summon;
+            delete decoded.player.summon;
+          }
+        }
+        const state = validateRun(decoded);
+        if (state.phase === 'lost') clearLostRunProgress(state);
+        else repairEarlyDeck(state);
         if (state.hpCurveVersion === undefined) {
           const level = state.player.level;
           const reduction = Math.max(0, Math.min(level, 25) - 1)
@@ -223,12 +367,24 @@ export function loadRun(storage) {
           }
         }
         for (const enemy of state.enemies) {
-          enemy.affinity = ENEMIES[enemy.kind]?.affinity ?? null;
-          if (enemy.maxHp !== previousRiftBossHp[enemy.kind]) continue;
-          const maxHp = RIFT_ENEMIES[enemy.kind].hp;
-          enemy.hp = Math.ceil(enemy.hp * maxHp / enemy.maxHp);
+          const rotates = enemy.kind === 'eternity_reborn' || (enemy.kind === 'eternity_overlord' && state.eternityPhase === 2);
+          const frozenTurn = state.legendaryTurns?.timestop === state.turn - 1;
+          enemy.affinity = rotates ? getEternityShiftAffinity(state.turn - (frozenTurn ? 1 : 0)) : ENEMIES[enemy.kind]?.affinity ?? null;
+          const maxHp = encounterMaxHp(enemy.kind, state.room);
+          if (enemy.maxHp === maxHp) continue;
+          if (enemy.kind === 'eternity_overlord' && state.room === FLOOR100_BOSS_ROOM && [10000, 6500].includes(enemy.maxHp) && enemy.hp > 0) {
+            const oldThreshold = enemy.maxHp === 6500 ? 3000 : enemy.maxHp / 2;
+            const newThreshold = ETERNITY_PHASE_HP[1];
+            const ceiling = state.eternityPhase === 2 ? newThreshold : maxHp;
+            const floor = state.eternityPhase === 2 ? 0 : newThreshold;
+            const progress = state.eternityPhase === 2 ? enemy.hp / oldThreshold : (enemy.hp - oldThreshold) / (enemy.maxHp - oldThreshold);
+            enemy.hp = Math.max(1, floor + Math.ceil(Math.max(0, Math.min(1, progress)) * (ceiling - floor)));
+          } else {
+            enemy.hp = Math.ceil(enemy.hp * maxHp / enemy.maxHp);
+          }
           enemy.maxHp = maxHp;
         }
+        if (state.phase === 'battle') checkEternityPhase2(state, null, null, { absorbCouncil: false });
         if (isSanctuaryPost20Unlocked(state)) unlockUpperTower(state);
         if (state.clearedRooms.includes(FLOOR50_BOSS_ROOM) || state.room > FLOOR50_BOSS_ROOM) unlockEndgameTower(state);
         refreshMiddleTowerRooms(state);
@@ -250,7 +406,8 @@ export function loadSettings(storage) {
     const settings = { ...DEFAULT_SETTINGS };
     if (!object(saved)) return settings;
     for (const key of ['music', 'sfx', 'ui']) if (Number.isFinite(saved[key]) && saved[key] >= 0 && saved[key] <= 1) settings[key] = saved[key];
-    for (const key of ['reducedMotion', 'tips']) if (typeof saved[key] === 'boolean') settings[key] = saved[key];
+    for (const key of ['muted', 'musicEnabled', 'sfxEnabled', 'reducedMotion', 'tips']) if (typeof saved[key] === 'boolean') settings[key] = saved[key];
+    if ([1, 2, 3].includes(saved.combatSpeed)) settings.combatSpeed = saved.combatSpeed;
     return settings;
   } catch { return { ...DEFAULT_SETTINGS }; }
 }
