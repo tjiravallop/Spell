@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+scratch/
+spell-foundry-merged-floors-5-8/scratch/
