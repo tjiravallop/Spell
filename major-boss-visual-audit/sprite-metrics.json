@@ -1,0 +1,156 @@
+[
+  {
+    "floor": 10,
+    "kind": "ember_overlord",
+    "slug": "floor-10-ember-overlord",
+    "bbox": [
+      18,
+      20,
+      82,
+      84
+    ],
+    "nativeCanvasPx": "64x64",
+    "gridUnits": "32x32",
+    "renderedCssPx": "120x120"
+  },
+  {
+    "floor": 20,
+    "kind": "tempest_archon",
+    "slug": "floor-20-tempest-archon",
+    "bbox": [
+      18,
+      20,
+      82,
+      84
+    ],
+    "nativeCanvasPx": "64x64",
+    "gridUnits": "32x32",
+    "renderedCssPx": "120x120"
+  },
+  {
+    "floor": 30,
+    "kind": "crown_archivist",
+    "slug": "floor-30-crown-archivist",
+    "bbox": [
+      16,
+      16,
+      80,
+      78
+    ],
+    "nativeCanvasPx": "64x62",
+    "gridUnits": "32x31",
+    "renderedCssPx": "120x116"
+  },
+  {
+    "floor": 40,
+    "kind": "mirror_regent",
+    "slug": "floor-40-mirror-regent",
+    "bbox": [
+      16,
+      20,
+      80,
+      82
+    ],
+    "nativeCanvasPx": "64x62",
+    "gridUnits": "32x31",
+    "renderedCssPx": "120x116"
+  },
+  {
+    "floor": 50,
+    "kind": "loom_sovereign",
+    "slug": "floor-50-loom-sovereign",
+    "bbox": [
+      16,
+      16,
+      80,
+      84
+    ],
+    "nativeCanvasPx": "64x68",
+    "gridUnits": "32x34",
+    "renderedCssPx": "120x127"
+  },
+  {
+    "floor": 60,
+    "kind": "volcano_colossus",
+    "slug": "floor-60-volcano-colossus",
+    "bbox": [
+      18,
+      16,
+      78,
+      82
+    ],
+    "nativeCanvasPx": "60x66",
+    "gridUnits": "30x33",
+    "renderedCssPx": "112x123"
+  },
+  {
+    "floor": 70,
+    "kind": "thunder_drake_emperor",
+    "slug": "floor-70-thunder-drake-emperor",
+    "bbox": [
+      18,
+      16,
+      78,
+      80
+    ],
+    "nativeCanvasPx": "60x64",
+    "gridUnits": "30x32",
+    "renderedCssPx": "112x120"
+  },
+  {
+    "floor": 80,
+    "kind": "abyssal_kraken",
+    "slug": "floor-80-abyssal-kraken",
+    "bbox": [
+      16,
+      16,
+      80,
+      84
+    ],
+    "nativeCanvasPx": "64x68",
+    "gridUnits": "32x34",
+    "renderedCssPx": "120x127"
+  },
+  {
+    "floor": 90,
+    "kind": "nether_dread_lord",
+    "slug": "floor-90-nether-dread-lord",
+    "bbox": [
+      16,
+      12,
+      80,
+      82
+    ],
+    "nativeCanvasPx": "64x70",
+    "gridUnits": "32x35",
+    "renderedCssPx": "120x131"
+  },
+  {
+    "floor": 100,
+    "kind": "eternity_overlord",
+    "slug": "floor-100-eternity-overlord",
+    "bbox": [
+      16,
+      12,
+      80,
+      76
+    ],
+    "nativeCanvasPx": "64x64",
+    "gridUnits": "32x32",
+    "renderedCssPx": "120x120"
+  },
+  {
+    "floor": 100,
+    "kind": "eternity_reborn",
+    "slug": "floor-100-eternity-reborn-phase3",
+    "bbox": [
+      12,
+      4,
+      84,
+      78
+    ],
+    "nativeCanvasPx": "72x74",
+    "gridUnits": "36x37",
+    "renderedCssPx": "135x138"
+  }
+]

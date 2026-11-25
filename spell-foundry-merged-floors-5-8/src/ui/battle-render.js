@@ -1,4 +1,4 @@
-import { WORDS, BATTLE_LIMITED_WORDS, elementFamily, fireShieldLayers, SECOND_TIER_ELEMENTS, FUSED_ELEMENTS, ELEMENT_VULNERABILITY, ELEMENT_SECONDARY_VULNERABILITY, ELEMENT_LABELS, ELEMENT_GLYPHS, ELEMENT_ICONS } from '../words.js';
+import { WORDS, BATTLE_LIMITED_WORDS, CREATURE_WORDS, elementFamily, fireShieldLayers, SECOND_TIER_ELEMENTS, FUSED_ELEMENTS, ELEMENT_VULNERABILITY, ELEMENT_SECONDARY_VULNERABILITY, ELEMENT_LABELS, ELEMENT_GLYPHS, ELEMENT_ICONS } from '../words.js';
 import {
   getHandLimit,
   battleSpellCost,
@@ -42,6 +42,9 @@ import { icon } from '../icons.js';
 import { RIFT_EXPOSED_BONUS, isRiftBossExposed } from '../upper-tower.js';
 import { MIDDLE_ENEMIES } from '../middle-tower.js';
 import { getBattleStory } from '../story.js';
+import { getSummonHudLayout } from '../render.js';
+import { resolveBossArt } from '../boss-art-v2.js';
+import { resolveBossLayer } from '../boss-sizes.js';
 import { ENEMY_TRAITS } from '../enemy-traits.js';
 import { canFormCardsInHand, canFormPhraseInHand, describeFormulaEffect } from '../combos.js';
 import {
@@ -52,7 +55,7 @@ import {
   rarityClass,
   playingCardFace,
 } from './dom.js';
-import { renderPlayerHp } from './battle-fx.js';
+import { renderPlayerHp, renderPlayerMana } from './battle-fx.js';
 
 export function renderTurnLabel(state) {
   const el = $('turn-label');
@@ -277,31 +280,7 @@ export function syncManaPipsPreview(state, pendingCost = 0) {
   const p = state?.player;
   if (!p) return;
   const maxMana = getMaxMana(p);
-  const manaEl = $('mana-value');
-  const pipsEl = $('mana-pips');
-  const cost = Math.max(0, Number(pendingCost) || 0);
-  const short = cost > p.mana;
-  if (manaEl) {
-    manaEl.textContent = `${p.mana} / ${maxMana}`;
-    manaEl.classList.toggle('is-short', short);
-    manaEl.title = short
-      ? `มานาไม่พอ (ต้องการ ${cost} · ขาด ${cost - p.mana})`
-      : cost > 0
-        ? `คาถาบนแท่นใช้ ${cost} มานา (จะเหลือ ${p.mana - cost})`
-        : `มานา ${p.mana} / ${maxMana}`;
-  }
-  if (pipsEl) {
-    const count = Math.min(maxMana, 16);
-    const filled = Math.ceil(count * p.mana / maxMana);
-    const spendPips = cost > 0 ? Math.min(count, Math.ceil(count * cost / maxMana)) : 0;
-    pipsEl.classList.toggle('has-shortage', short);
-    pipsEl.innerHTML = Array.from({ length: count }, (_, i) => {
-      const isFull = i < filled;
-      const willSpend = isFull && spendPips > 0 && i >= Math.max(0, filled - spendPips);
-      const isDeficit = !isFull && short && i < spendPips;
-      return `<i class="mana-pip ${isFull ? 'full' : ''} ${willSpend ? 'will-spend' : ''} ${isDeficit ? 'insufficient' : ''}"></i>`;
-    }).join('');
-  }
+  renderPlayerMana(p.mana, maxMana, { pendingCost, animate: !(Number(pendingCost) > 0) });
 }
 
 export function renderBattleStory(state, collapsedStoryIds) {
@@ -373,7 +352,16 @@ export function renderEnemies({ state, battlefield, targetId, busy }, forecast) 
   const xPositions = battlefield.positions();
   const positions = new Map(state.enemies.map((enemy, index) => [enemy.id, xPositions[index]]));
   const visibleEnemies = [...state.enemies].sort((a, b) => a.slot - b.slot).filter(enemy => enemy.hp > 0);
-  $('enemy-list').innerHTML = visibleEnemies.map(enemy => {
+  const isRearBossEncounter = visibleEnemies.some(
+    enemy => resolveBossArt(enemy.kind, battlefield?.bossVisuals) && resolveBossLayer(enemy.kind, battlefield?.bossVisuals) === 'rear',
+  );
+  const rearMinionTotal = isRearBossEncounter ? visibleEnemies.filter(e => !ENEMIES[e.kind]?.isBoss).length : 0;
+  const hudEl = $('major-boss-hud');
+  const hudCards = [];
+  const cardHtml = [];
+  let rearMinionCounter = 0;
+
+  for (const enemy of visibleEnemies) {
     const base = ENEMIES[enemy.kind];
     const trait = ENEMY_TRAITS[enemy.kind];
     const action = intent(enemy, state.turn, state.enemies, state.room, Boolean(state.rift?.instability));
@@ -433,19 +421,19 @@ export function renderEnemies({ state, battlefield, targetId, busy }, forecast) 
         ? 'ลงกราวด์แล้ว · เกราะมหาประจุดาราไม่ช็อตคืนจนจบเทิร์นนี้'
         : 'เกราะมหาประจุดารา · สะท้อนสายฟ้า 4 เมื่อมีเกราะ หากไม่ใช้ธาตุดิน (ลงกราวด์) หรือคำว่าเจาะ · เปิดช่อง +35% ในบทที่ 4';
       badges.push(`<span class="enemy-badge ${isGrounded ? 'badge-armor' : 'badge-ward'}" title="${bossHint}">${isGrounded ? 'ลงกราวด์แล้ว' : 'ประจุดารา 4'}</span>`);
-    } else if (enemy.kind === 'kraken_ward_tentacle') {
+    } else if (enemy.kind === 'cthulhu_ward_tentacle') {
       bossHint = 'เฟส 1/2 · คูลดาวน์ 2 เทิร์น: เทิร์นคี่กางม่าน +1 ให้หนวดอื่นทุกเส้น (ผนึกหยุดได้) · ปราบหนวดครบ 4 เส้นเพื่อเรียกร่างจริง';
       badges.push(`<span class="enemy-badge badge-ward" title="${bossHint}">ม่านทุก 2 เทิร์น</span>`);
-    } else if (enemy.kind === 'kraken_heal_tentacle') {
+    } else if (enemy.kind === 'cthulhu_heal_tentacle') {
       bossHint = 'เฟส 1/2 · คูลดาวน์ 2 เทิร์น: เทิร์นคู่ฟื้นหนวดที่ HP% ต่ำสุด +220 HP (อัคคีลดฮีลครึ่งหนึ่ง)';
       badges.push(`<span class="enemy-badge badge-chill" title="${bossHint}">ฮีล +220</span>`);
-    } else if (enemy.kind === 'kraken_ink_tentacle') {
-      bossHint = 'เฟส 1/2 · คูลดาวน์ 3 เทิร์น: พ่นหมึกดำ 42 ดาเมจ + สูบมานา −2 MP';
+    } else if (enemy.kind === 'cthulhu_ink_tentacle') {
+      bossHint = 'เฟส 1/2 · คูลดาวน์ 3 เทิร์น: พ่นหมึกกลืนเวท 42 ดาเมจ + สูบมานา −2 MP';
       badges.push(`<span class="enemy-badge badge-ward" title="${bossHint}">สูบ −2 MP</span>`);
-    } else if (enemy.kind === 'kraken_crush_tentacle') {
+    } else if (enemy.kind === 'cthulhu_crush_tentacle') {
       bossHint = 'เฟส 1/2 · วัฏจักร 3 เทิร์น: โจมตี 52 → ชาร์จพลัง → ฟาดบดขยี้ 92 ดาเมจ!';
       badges.push(`<span class="enemy-badge badge-push" title="${bossHint}">ชาร์จ 92</span>`);
-    } else if (enemy.kind === 'abyssal_kraken') {
+    } else if (enemy.kind === 'abyssal_cthulhu') {
       const isShocked = (status.abyssalShockUntil ?? enemy.abyssalShockUntil ?? 0) >= state.turn;
       bossHint = isShocked
         ? 'ผิวน้ำบาดาลนำไฟฟ้า · ถูกช็อตแล้ว! เกราะลด −2 จนจบเทิร์นนี้ (โดนสายฟ้า +15 ดาเมจแท้)'
@@ -577,17 +565,67 @@ export function renderEnemies({ state, battlefield, targetId, busy }, forecast) 
         : projectedAction.shortLabel && projectedAction.shortLabel !== action.shortLabel ? ` → ${projectedAction.shortLabel}`
           : action.type === 'attack' && projectedAction.type === 'attack' && projectedAction.amount !== action.amount ? ` → ${projectedAction.amount}` : '';
     const middleLane = Object.hasOwn(MIDDLE_ENEMIES, enemy.kind) ? ` data-middle-lane="${enemy.slot % 2}"` : '';
-    const crowdLane = state.room >= FLOOR21_START_ROOM && visibleEnemies.length >= 3 ? ` data-crowd-lane="${enemy.slot % 2}"` : '';
+    const crowdLane = !isRearBossEncounter && state.room >= FLOOR21_START_ROOM && visibleEnemies.length >= 3 ? ` data-crowd-lane="${enemy.slot % 2}"` : '';
+    const isRearMinion = isRearBossEncounter && !ENEMIES[enemy.kind]?.isBoss;
+    const rearMinionIdx = isRearMinion ? rearMinionCounter++ : -1;
+    const rearMinionAttr = isRearMinion ? ` data-rear-boss-minion="${rearMinionIdx}" data-rear-boss-count="${rearMinionTotal}"` : '';
+    const cardX = isRearMinion
+      ? (rearMinionTotal >= 3
+        ? [144, 214, 282][Math.min(2, rearMinionIdx)]
+        : (rearMinionIdx === 0 ? Math.min(positions.get(enemy.id), 182) : Math.max(positions.get(enemy.id), 266)))
+      : positions.get(enemy.id);
+    const cardY = isRearMinion ? 98 : (ENEMIES[enemy.kind]?.isBoss ? 42 : 56);
     const hpPct = `${Math.max(0, Math.min(100, enemy.hp / enemy.maxHp * 100))}%`;
-    return `<button type="button" id="target-${enemy.id}" class="enemy-card enemy-kind-${enemy.kind} ${targetId === enemy.id ? 'target' : ''}" style="--enemy-x:${positions.get(enemy.id) / 3.2}%;--enemy-y:${ENEMIES[enemy.kind]?.isBoss ? 42 : 56}%" data-target="${enemy.id}"${middleLane}${crowdLane} aria-pressed="${targetId === enemy.id}" ${busy ? 'disabled' : ''} title="${escape(description)}" aria-label="${escape(description)}${escape(projectedLabel)} เกราะ ${armorText} ม่าน ${enemy.ward}"><span class="enemy-mobile-heading"><strong>${escape(base.name)}</strong><small data-enemy-slot-label>ช่อง ${enemy.slot + 1}</small></span><span class="enemy-intent intent-${intentClass}">${intentLabel}${projectedLabel}</span><span class="enemy-hp-text">${enemy.hp}/${enemy.maxHp}${predicted !== null && predicted !== enemy.hp ? ` <em>→ ${predicted}</em>` : ''}</span><span class="enemy-hp"><i class="enemy-hp-trail" style="width:${hpPct}"></i><i class="enemy-hp-fill" style="width:${hpPct}"></i></span><span class="enemy-info">${badges.join('')}</span></button>`;
-  }).join('');
+    const isBossV2Hud = Boolean(hudEl && resolveBossArt(enemy.kind, battlefield?.bossVisuals));
+    if (isBossV2Hud) {
+      hudCards.push(`<button type="button" id="target-${enemy.id}" class="major-boss-hud enemy-kind-${enemy.kind} ${targetId === enemy.id ? 'target' : ''}" data-target="${enemy.id}" aria-pressed="${targetId === enemy.id}" ${busy ? 'disabled' : ''} title="${escape(description)}" aria-label="${escape(description)}${escape(projectedLabel)} เกราะ ${armorText} ม่าน ${enemy.ward}"><span class="major-boss-hud-title"><strong>${escape(base.name)}</strong><span class="enemy-intent intent-${intentClass}">${intentLabel}${projectedLabel}</span></span><span class="major-boss-hud-hp"><span class="enemy-hp-text">${enemy.hp}/${enemy.maxHp}${predicted !== null && predicted !== enemy.hp ? ` <em>→ ${predicted}</em>` : ''}</span><span class="enemy-hp"><i class="enemy-hp-trail" style="width:${hpPct}"></i><i class="enemy-hp-fill" style="width:${hpPct}"></i></span></span><span class="enemy-info">${badges.join('')}</span></button>`);
+    } else {
+      cardHtml.push(`<button type="button" id="target-${enemy.id}" class="enemy-card enemy-kind-${enemy.kind} ${targetId === enemy.id ? 'target' : ''}" style="--enemy-x:${cardX / 3.2}%;--enemy-y:${cardY}%" data-target="${enemy.id}"${middleLane}${crowdLane}${rearMinionAttr} aria-pressed="${targetId === enemy.id}" ${busy ? 'disabled' : ''} title="${escape(description)}" aria-label="${escape(description)}${escape(projectedLabel)} เกราะ ${armorText} ม่าน ${enemy.ward}"><span class="enemy-mobile-heading"><strong>${escape(base.name)}</strong><small data-enemy-slot-label>ช่อง ${enemy.slot + 1}</small></span><span class="enemy-intent intent-${intentClass}">${intentLabel}${projectedLabel}</span><span class="enemy-hp-text">${enemy.hp}/${enemy.maxHp}${predicted !== null && predicted !== enemy.hp ? ` <em>→ ${predicted}</em>` : ''}</span><span class="enemy-hp"><i class="enemy-hp-trail" style="width:${hpPct}"></i><i class="enemy-hp-fill" style="width:${hpPct}"></i></span><span class="enemy-info">${badges.join('')}</span></button>`);
+    }
+  }
+
+  if (hudEl) {
+    hudEl.hidden = hudCards.length === 0;
+    hudEl.innerHTML = hudCards.join('');
+  }
+  $('enemy-list').innerHTML = cardHtml.join('');
 
   if (state.player?.summon && state.player.summon.hp > 0) {
-    $('enemy-list').innerHTML = renderSummonCardHtml(state.player.summon) + $('enemy-list').innerHTML;
+    const list = $('enemy-list');
+    list.innerHTML = renderSummonCardHtml(state.player.summon, {
+      dragonV2: Boolean(battlefield?.summonVisuals?.dragonV2),
+      phoenixV2: Boolean(battlefield?.summonVisuals?.phoenixV2),
+      hydraV2: Boolean(battlefield?.summonVisuals?.hydraV2),
+      behemothV2: Boolean(battlefield?.summonVisuals?.behemothV2),
+      krakenV2: Boolean(battlefield?.summonVisuals?.krakenV2),
+      gargoyleV2: Boolean(battlefield?.summonVisuals?.gargoyleV2),
+      skeletonV2: Boolean(battlefield?.summonVisuals?.skeletonV2),
+      eagleV2: Boolean(battlefield?.summonVisuals?.eagleV2),
+      birdV2: Boolean(battlefield?.summonVisuals?.birdV2),
+      batV2: Boolean(battlefield?.summonVisuals?.batV2),
+      hornetV2: Boolean(battlefield?.summonVisuals?.hornetV2),
+      wolfV2: Boolean(battlefield?.summonVisuals?.wolfV2),
+      sirenV2: Boolean(battlefield?.summonVisuals?.sirenV2),
+      golemV2: Boolean(battlefield?.summonVisuals?.golemV2),
+      sizeV2: Boolean(battlefield?.summonVisuals?.sizeV2),
+    }) + list.innerHTML;
+    positionSummonCard(list);
   }
 }
 
-export function renderSummonCardHtml(s) {
+export function positionSummonCard(list = $('enemy-list')) {
+  const card = list?.querySelector?.('.summon-card');
+  const scene = list?.closest?.('.battle-scene');
+  if (!card || !scene || typeof card.getBoundingClientRect !== 'function') return;
+  if (card.dataset.summonHudPlacement !== 'above') return;
+  const cardRect = card.getBoundingClientRect();
+  const sceneRect = scene.getBoundingClientRect();
+  if (cardRect.height > 0 && sceneRect.height > 0 && cardRect.top < sceneRect.top + 4) {
+    card.dataset.summonHudPlacement = 'side';
+  }
+}
+
+export function renderSummonCardHtml(s, options = {}) {
   if (!s || !(s.hp > 0)) return '';
   const elemLabel = s.element ? (ELEMENT_LABELS[s.element] || WORDS[s.element]?.label || s.element) : 'ไร้ธาตุ';
   const summonBadges = [
@@ -599,7 +637,8 @@ export function renderSummonCardHtml(s) {
   ].filter(Boolean).join('');
   const maxHp = Math.max(1, s.maxHp ?? s.hp);
   const sHpPct = `${Math.max(0, Math.min(100, (s.hp / maxHp) * 100))}%`;
-  return `<div class="enemy-card summon-card" data-summon-card="true" style="--enemy-x:27.5%;--enemy-y:54%;border:1px solid #ffd700;box-shadow:0 0 8px rgba(255,215,0,0.3);pointer-events:none;" title="${escape(s.name)} · แนวหน้าคุ้มกัน"><span class="enemy-mobile-heading"><strong>⭐ ${escape(s.name)}</strong><small>แนวหน้า</small></span><span class="enemy-intent intent-attack">🛡️ คุ้มกันผู้เล่น</span><span class="enemy-hp-text">${s.hp}/${maxHp}</span><span class="enemy-hp"><i class="enemy-hp-trail" style="width:${sHpPct}"></i><i class="enemy-hp-fill" style="width:${sHpPct};background:#4ade80;"></i></span><span class="enemy-info">${summonBadges}</span></div>`;
+  const layout = getSummonHudLayout(s, options);
+  return `<div class="enemy-card summon-card" data-summon-card="true" data-summon-hud-placement="${layout.placement}" style="--enemy-x:${layout.aboveX}%;--enemy-y:${layout.aboveY}%;--summon-side-x:${layout.sideX}%;--summon-side-y:${layout.sideY}%;border:1px solid #ffd700;box-shadow:0 0 8px rgba(255,215,0,0.3);pointer-events:none;" title="${escape(s.name)} · แนวหน้าคุ้มกัน"><span class="enemy-mobile-heading"><strong>⭐ ${escape(s.name)}</strong><small>แนวหน้า</small></span><span class="enemy-intent intent-attack">🛡️ คุ้มกันผู้เล่น</span><span class="enemy-hp-text">${s.hp}/${maxHp}</span><span class="enemy-hp"><i class="enemy-hp-trail" style="width:${sHpPct}"></i><i class="enemy-hp-fill" style="width:${sHpPct};background:#4ade80;"></i></span><span class="enemy-info">${summonBadges}</span></div>`;
 }
 
 let lastRenderedSlotState = { room: null, words: [] };
@@ -728,7 +767,12 @@ export function renderSlots({ state, words, selectedSlot, busy, castFxState }, p
 
 export function getKnownCastableInHand(state, accountDiscovered) {
   const knownKeys = new Set([...accountDiscovered, ...(state?.stats?.discovered ?? []), ...state.player.hand.filter(id => BATTLE_LIMITED_WORDS.includes(id))]);
-  const catOrder = { combo_attack: 0, combo_shield: 1, combo_heal: 2 };
+  const categoryFor = spell => {
+    if (spell.type === 'summon') return { category: 'อัญเชิญ', kindClass: 'combo-summon', catRank: 1 };
+    if (spell.form === 'heal' || spell.healing > 0) return { category: 'ฟื้นฟู', kindClass: 'combo-heal', catRank: 3 };
+    if (spell.type === 'self') return { category: 'โล่', kindClass: 'combo-shield', catRank: 2 };
+    return { category: 'โจมตี', kindClass: 'combo-attack', catRank: 0 };
+  };
   const castable = [];
   const shortMana = [];
   let cardsOnlyCount = 0;
@@ -743,38 +787,24 @@ export function getKnownCastableInHand(state, accountDiscovered) {
         const detonateOk = cardsMatch.spell.form !== 'detonate' || fireShieldLayers(state.player.shield, cardsMatch.spell.element).length > 0;
         const cost = battleSpellCost(state, cardsMatch);
         if (detonateOk && cost > state.player.mana) {
-          const isHeal = cardsMatch.spell.form === 'heal' || cardsMatch.spell.healing > 0;
-          const isDefense = cardsMatch.spell.type === 'self';
-          const category = isHeal ? 'ฟื้นฟู' : isDefense ? 'โล่' : 'โจมตี';
-          const kindClass = isHeal ? 'combo-heal' : isDefense ? 'combo-shield' : 'combo-attack';
-          const catRank = isHeal ? catOrder.combo_heal : isDefense ? catOrder.combo_shield : catOrder.combo_attack;
           shortMana.push({
             key,
             phrase: cardsMatch.ids,
             expression: cardsMatch.expression,
             cost,
-            category,
-            kindClass,
-            catRank,
+            ...categoryFor(cardsMatch.spell),
           });
         }
       }
       continue;
     }
-    const isHeal = recipe.spell.form === 'heal' || recipe.spell.healing > 0;
-    const isDefense = recipe.spell.type === 'self';
-    const category = isHeal ? 'ฟื้นฟู' : isDefense ? 'โล่' : 'โจมตี';
-    const kindClass = isHeal ? 'combo-heal' : isDefense ? 'combo-shield' : 'combo-attack';
-    const catRank = isHeal ? catOrder.combo_heal : isDefense ? catOrder.combo_shield : catOrder.combo_attack;
     const effectDesc = describeFormulaEffect({ phrase: recipe.ids, spell: recipe.spell });
     castable.push({
       key,
       phrase: recipe.ids,
       expression: recipe.expression,
       cost: recipe.cost,
-      category,
-      kindClass,
-      catRank,
+      ...categoryFor(recipe.spell),
       effectDesc,
     });
   }
@@ -1075,9 +1105,18 @@ export function renderTutorial({ state, settings, dismissedRoom, words }) {
   else if (state.room === FLOOR21_START_ROOM) text = 'อาลักษณ์สลับฮีลกับเติมม่าน เลข # บนเจตนาบอกช่องของเพื่อนที่มันจะช่วย';
   else if (state.room === FLOOR21_START_ROOM + 1) text = 'โกเลมชาร์จก่อนฟาดหนักหนึ่งเทิร์น ดูเลขบนป้ายชาร์จเพื่อเตรียมโล่หรือลดแรงโจมตีด้วยน้ำแข็ง';
   else if (state.room === FLOOR21_START_ROOM + 2) text = 'ผู้พิทักษ์เลือกเติมม่านให้เพื่อนที่สัดส่วน HP ต่ำสุด ผลคาดการณ์จะแสดงเมื่อเป้าหมายเปลี่ยน';
-  else if (state.enemies.some(e => e.kind === 'elite')) text = 'บอสมีม่านในเทิร์นคี่ ใช้ “ลูก ไฟ คู่” เปิดม่านแล้วทำดาเมจ หรือรอเทิร์นคู่เพื่อยิงตอนม่านหาย';
-  else if (state.enemies.some(e => e.ward > 0) && state.player.words.includes('pair')) text = 'เมื่อศัตรูมีม่าน ใช้ “ลูก ไฟ คู่” ให้ลูกแรกเปิดม่านและลูกที่สองทำดาเมจ ถ้าคำยังไม่ครบ ให้กด “ตั้งรับ” เพื่อรอจั่ว';
-  else if (state.enemies.length > 1 && state.player.words.includes('blast')) text = '“ลูก ไฟ ระเบิด” โดนเป้าหมายและตัวที่อยู่ติดซ้ายขวา ลองเล็งตัวตรงกลาง';
+  else if (state.enemies.some(e => e.hp > 0 && e.ward > 0)) {
+    const deck = state.player.words;
+    if (deck.includes('summon') && deck.some(id => CREATURE_WORDS.includes(id))) {
+      text = 'ม่านที่สิ่งอัญเชิญโจมตีจะหยุดฟื้น 1 เทิร์น';
+    } else if (deck.includes('beam')) {
+      text = 'ใช้ “ลำแสง” โจมตีทะลุม่าน';
+    } else if (['shot', 'fire', 'pair'].every(id => deck.includes(id))) {
+      text = 'ใช้ “ลูก ไฟ คู่” ลูกแรกเปิดม่าน ลูกถัดไปทำดาเมจ';
+    } else {
+      text = 'ม่านรับการโจมตีหนึ่งครั้งต่อชั้น ดูจำนวนม่านใต้แถบ HP';
+    }
+  } else if (state.enemies.length > 1 && state.player.words.includes('blast')) text = '“ลูก ไฟ ระเบิด” โดนเป้าหมายและตัวที่อยู่ติดซ้ายขวา ลองเล็งตัวตรงกลาง';
   else if (state.enemies.some(e => e.armor)) text = 'เกราะหักดาเมจทุกครั้ง สายฟ้าข้ามเกราะได้ 2 หน่วย และโล่ช่วยรับการโจมตีหนัก';
   else text = 'ดูเจตนาศัตรูก่อนร่าย น้ำแข็งลดแรงโจมตีครั้งถัดไป และโล่ที่เหลืออยู่ต่อได้อีกหนึ่งเทิร์น';
   $('tutorial-text').textContent = text;

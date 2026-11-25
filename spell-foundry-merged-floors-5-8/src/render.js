@@ -1,10 +1,15 @@
 import { shieldProtection } from './shields.js';
-import { ENEMIES, FLOOR21_START_ROOM, RELIC_DRAFT_CATALOG, getFloorInfo } from './run.js';
-import { elementFamily } from './words.js';
+import { ENEMIES, FLOOR21_START_ROOM, FLOOR30_BOSS_ROOM, FLOOR40_BOSS_ROOM, FLOOR50_BOSS_ROOM, FLOOR60_BOSS_ROOM, FLOOR70_BOSS_ROOM, RELIC_DRAFT_CATALOG, getFloorInfo } from './run.js';
+import { elementFamily, FUSION_COMPONENTS } from './words.js';
 import { middleSprites } from './middle-sprites.js';
 import { loadSpriteArt, spriteFrame } from './sprite-art.js';
 import { drawTowerFittings, towerArtPalette, towerEnemyArt } from './tower-enemy-art.js';
 import { drawNewTowerSprite, GEAR_RIFT_SPRITE_KINDS } from './tower-pixel-sprites.js';
+import { drawSummonArt, resolveSummonArt, SUMMON_ART } from './summon-art.js';
+import { resolveCreatureOffset, resolveCreatureScale } from './summon-sizes.js';
+import { FUSION_SUMMON_PALETTES } from './summon-palettes.js';
+import { drawBossArt, evaluateBossAnimation, resolveBossArt } from './boss-art-v2.js';
+import { getBossVisualBounds, resolveBossLayer, resolveBossOffset, resolveBossScale } from './boss-sizes.js';
 
 export const PALETTE = ['#10191b', '#172326', '#203033', '#2b3d3c', '#3b4b46', '#536454', '#718063', '#9da77c', '#cbd5a1', '#eff0c4', '#332d2b', '#514036', '#765740', '#a57a50', '#d3aa6b', '#efd19a', '#4d3036', '#7b464c', '#b46c67', '#e29d83', '#3d374e', '#60516f', '#907ba6', '#bca5d2', '#335250', '#53857b', '#8bb7a0', '#b7d9bd', '#7e512e', '#b98745', '#e4b659', '#f5db87'];
 const C = PALETTE;
@@ -14,7 +19,7 @@ export const LARGE_BOSS_KINDS = new Set([
   'prism_watcher', 'astral_sentinel', 'elder_grimoire', 'eclipse_mage', 'glacial_sovereign', 'thunder_colossus', 'nexus_codex', 'tempest_archon',
   'seal_curator', 'crown_archivist',
   'gate_weaver', 'mirror_regent', 'seam_warden', 'loom_sovereign',
-  'volcano_colossus', 'thunder_drake_emperor', 'ancient_chitin_behemoth', 'abyssal_kraken', 'nether_dread_lord', 'eternity_overlord', 'eternity_reborn',
+  'volcano_colossus', 'thunder_drake_emperor', 'ancient_chitin_behemoth', 'abyssal_cthulhu', 'nether_dread_lord', 'eternity_overlord', 'eternity_reborn',
   'ironforge_automaton', 'tempest_blade_seraph', 'abyssal_tide_colossus', 'magma_core_juggernaut', 'chitin_bastion_behemoth',
   'storm_sovereign_drake', 'void_kraken_leviathan', 'nether_forge_overlord', 'eternity_armory_god',
 ]);
@@ -56,6 +61,7 @@ const ELEMENT_IMPACT = Object.freeze({
   ice: {
     core: '#f2ffff',
     primary: '#29d6ff',
+    summonTint: '#9ceeff',
     secondary: '#0077c2',
     rim: '#a6f4ff',
   },
@@ -74,6 +80,7 @@ const ELEMENT_IMPACT = Object.freeze({
   water: {
     core: '#ebffff',
     primary: '#3cb9f5',
+    summonTint: '#387dea',
     secondary: '#175a94',
     rim: '#8ee3ff',
   },
@@ -95,11 +102,26 @@ const ELEMENT_IMPACT = Object.freeze({
     secondary: '#7b2cbf',
     rim: '#e0aaff',
   },
-  akki: { core: '#fff6b7', primary: '#ff5741', secondary: '#a32251', rim: '#ffad69' },
-  heman: { core: '#e7f1ff', primary: '#7aa8ff', secondary: '#4a50be', rim: '#9ed8ff' },
-  asani: { core: '#fff2ff', primary: '#dba1ff', secondary: '#7934ca', rim: '#ffda98' },
-  pathaphi: { core: '#fff3c4', primary: '#e0a84d', secondary: '#74481e', rim: '#f7d588' },
-  wari: { core: '#e9ffff', primary: '#44d0ff', secondary: '#14629c', rim: '#a8f2ff' },
+  akki: {
+    core: '#fff6b7', primary: '#ff5741', secondary: '#a32251', rim: '#ffad69',
+    summonTint: '#ee3050', summonMark: ['..+..', '..#+.', '.+##.', '+###+', '.+#+.'],
+  },
+  heman: {
+    core: '#e7f1ff', primary: '#7aa8ff', secondary: '#4a50be', rim: '#9ed8ff',
+    summonTint: '#8b92ff', summonMark: ['+.+.+', '.###.', '+###+', '.###.', '+.+.+'],
+  },
+  asani: {
+    core: '#fff2ff', primary: '#dba1ff', secondary: '#7934ca', rim: '#ffda98',
+    summonTint: '#bd6bff', summonMark: ['..+#.', '.+#..', '.##+.', '..#+.', '.#+..'],
+  },
+  pathaphi: {
+    core: '#fff3c4', primary: '#e0a84d', secondary: '#74481e', rim: '#f7d588',
+    summonTint: '#af755d', summonMark: ['..+..', '.+#+.', '+###+', '.+#+.', '..+..'],
+  },
+  wari: {
+    core: '#e9ffff', primary: '#44d0ff', secondary: '#14629c', rim: '#a8f2ff',
+    summonTint: '#28c7cd', summonMark: ['..+..', '.+#+.', '.###.', '+###+', '.+++.'],
+  },
   magma: { core: '#ffed99', primary: '#ff8543', secondary: '#b73e23', rim: '#ffc354' },
   mudmire: { core: '#f5ecd5', primary: '#8b6c42', secondary: '#4e3b20', rim: '#c2a677' },
   dust: { core: '#f7f4ea', primary: '#b8a98a', secondary: '#6b5e43', rim: '#e2d8c3' },
@@ -120,17 +142,98 @@ const ELEMENT_IMPACT = Object.freeze({
   death: { core: '#fff3fa', primary: '#e679af', secondary: '#672245', rim: '#ffacca' },
   meteor: { core: '#fff6cf', primary: '#ff9a50', secondary: '#aa3824', rim: '#ffd263' },
   veil: { core: '#f2ecff', primary: '#b3b1ff', secondary: '#484893', rim: '#d8d3ff' },
-  vayu: { core: '#f3fff3', primary: '#94e7ae', secondary: '#398d82', rim: '#c8f9c0' },
+  vayu: {
+    core: '#f3fff3', primary: '#94e7ae', secondary: '#398d82', rim: '#c8f9c0',
+    summonTint: '#65d56e', summonMark: ['..+++', '.+#..', '+###+', '...#+', '.+++.'],
+  },
 });
 const elementColor = Object.fromEntries(Object.entries(ELEMENT_IMPACT).map(([id, palette]) => [id, palette.primary]));
+const fusedSummonMarks = {
+  magma:      ['..++...', '...##..', '.###++.', '+##.##.', '.+...#+'],
+  mudmire:    ['....+..', '..##...', '.####+.', '+##..##', '..+++..'],
+  dust:       ['...++..', '.###...', '+..###+', '...##..', '.++....'],
+  permafrost: ['...#...', '..#+#..', '+#..##.', '.##+#.+', '..+#...'],
+  magnet:     ['.#+.+#.', '+##.##+', '.#...#.', '.##.##.', '...+...'],
+  mist:       ['..+++..', '.##..++', '...###.', '+##....', '..+##+.'],
+  hail:       ['.+...+.', '..#.#..', '.#+#..+', '+..##..', '..+..#.'],
+  monsoon:    ['..###+.', '.##...+', '+#..##.', '.#...#+', '..###..'],
+  shockstream:['...#+..', '..##...', '.+####.', '....##+', '..##+..'],
+  thunderstorm:['..++##.', '.###...', '+##.##+', '...##..', '..#+...'],
+  heatwave:   ['.+..#+.', '..##.#.', '.##.##+', '+#..##.', '.+##+..'],
+  chillgale:  ['...#..+', '.##+##.', '+..#...', '.##+##+', '...#...'],
+  plasma:     ['..#..+.', '.+###..', '##+.+##', '..###+.', '.+..#..'],
+  scald:      ['..#..+.', '.#+.#..', '.#..#+.', '..##...', '+####+.'],
+  frostvolt:  ['...##..', '..##.+.', '.+####+', '...##..', '..##...'],
+};
+const fusedSummonPalettes = new Map(Object.entries(FUSION_COMPONENTS).map(([id, [base, accent]]) => {
+  const body = ELEMENT_IMPACT[base];
+  const mark = ELEMENT_IMPACT[accent];
+  return [id, {
+    ...ELEMENT_IMPACT[id],
+    summonTint: body.summonTint ?? body.primary,
+    summonMark: fusedSummonMarks[id],
+    markColors: { '#': mark.rim, '+': mark.primary },
+  }];
+}));
+const fusionSummonPalettesV2 = new Map(Object.entries(FUSION_SUMMON_PALETTES).map(([id, palette]) => [
+  id, Object.freeze({ ...palette, summonMark: fusedSummonMarks[id] }),
+]));
+const fusionSummonPalette = (element, visuals) => visuals?.v2 ? fusionSummonPalettesV2.get(element) : undefined;
 elementColor['akki-blast'] = elementColor.akki;
 export const vfxScale = source => (source?.grand ? 5 : source?.large ? 2 : 1);
 
+export const NORMAL_SUMMON_ANCHOR = Object.freeze({ x: 88, baseline: 147 });
+export const GRAND_SUMMON_ANCHOR = Object.freeze({ x: 78, baseline: 143 });
+
+export function getSummonAnchor(summon, options) {
+  const grand = Boolean(summon?.isGrand && Object.hasOwn(SUMMON_ART, summon?.creatureId));
+  const base = grand ? GRAND_SUMMON_ANCHOR : NORMAL_SUMMON_ANCHOR;
+  const offset = resolveCreatureOffset(summon?.creatureId, grand, options);
+  return offset.x || offset.baseline
+    ? { x: base.x + offset.x, baseline: base.baseline + offset.baseline }
+    : base;
+}
+
+export function getSummonBounds(summon, options = {}) {
+  const { x, baseline } = getSummonAnchor(summon, options);
+  const cid = summon?.creatureId;
+  const art = resolveSummonArt(cid, options);
+  if (!art) {
+    return { x, baseline, left: x - 12, right: x + 12, top: baseline - 24, bottom: baseline, width: 24, height: 24, isGrand: false };
+  }
+  const grand = Boolean(summon?.isGrand);
+  const scale = resolveCreatureScale(cid, grand, art, options);
+  const width = Math.round(art.width * scale);
+  const height = Math.round(art.height * scale);
+  const lift = Math.min(Math.round(art.lift * scale), Math.max(0, baseline - height - 6));
+  const left = x - Math.floor(width / 2);
+  const top = baseline - height - lift;
+  return { x, baseline, left, right: left + width, top, bottom: top + height, width, height, isGrand: grand };
+}
+
+export function getSummonHudLayout(summon, options = {}) {
+  const bounds = getSummonBounds(summon, options);
+  const gap = bounds.isGrand ? 5 : 10;
+  const aboveY = Math.max(4, bounds.top - gap);
+  const sideX = Math.min(240, bounds.right + 6);
+  const sideY = Math.max(6, Math.min(96, bounds.top));
+  return {
+    bounds,
+    placement: bounds.top < 46 ? 'side' : 'above',
+    aboveX: Number((bounds.x / 3.2).toFixed(3)),
+    aboveY: Number((aboveY / 1.8).toFixed(3)),
+    sideX: Number((sideX / 3.2).toFixed(3)),
+    sideY: Number((sideY / 1.8).toFixed(3)),
+  };
+}
+
 export class Battlefield {
-  constructor(canvas, settings) {
+  constructor(canvas, settings, summonVisuals, bossVisuals = null) {
     this.canvas = canvas; this.ctx = canvas.getContext('2d', { alpha: false });
     this.hpNumbersInHud = Boolean(canvas.closest?.('.battle-scene'));
     this.settings = settings; this.state = null; this.target = null; this.events = []; this.started = 0; this.duration = 0;
+    this.summonVisuals = summonVisuals;
+    this.bossVisuals = bossVisuals;
     this.spriteArt = loadSpriteArt();
     this.background = document.createElement('canvas'); this.background.width = 320; this.background.height = 180;
     const backgroundContext = this.background.getContext('2d');
@@ -179,12 +282,12 @@ export class Battlefield {
     }
   }
   animate(combatEvents, onEvent, onComplete = null) {
-    const events = [];
+    const grouped = [];
     for (let i = 0; i < combatEvents.length; i++) {
       const event = combatEvents[i];
       const next = combatEvents[i + 1];
       if (['projectile', 'chain-lightning', 'magma-erupt'].includes(event.type) && !event.blocked && next?.type === 'damage' && next.target === event.target) {
-        events.push({ ...event, damage: next });
+        grouped.push({ ...event, damage: next });
         i++;
       } else if (event.type === 'blast') {
         const hits = [];
@@ -195,10 +298,43 @@ export class Battlefield {
           if (effect.type === 'damage') hits.push({ damage: effect, statuses: [] });
           else hits.at(-1).statuses.push(effect);
         }
-        events.push({ ...event, hits });
+        grouped.push({ ...event, hits });
       } else {
-        events.push(event);
+        grouped.push(event);
       }
+    }
+    const events = [];
+    const consumed = new Set();
+    for (let i = 0; i < grouped.length; i++) {
+      if (consumed.has(i)) continue;
+      const ev = grouped[i];
+      if (ev.type === 'projectile' && ev.form === 'spear' && ev.spearPhase === 'front' && ev.spearGroup) {
+        let backIdx = -1;
+        for (let j = i + 1; j < grouped.length; j++) {
+          if (consumed.has(j)) continue;
+          const cand = grouped[j];
+          if (cand.type === 'projectile' && cand.form === 'spear' && cand.spearPhase === 'pierce' && cand.spearGroup === ev.spearGroup) {
+            backIdx = j;
+            break;
+          }
+        }
+        if (backIdx !== -1) {
+          const backEv = grouped[backIdx];
+          let backDispel = null;
+          const prevIdx = backIdx - 1;
+          if (prevIdx > i && !consumed.has(prevIdx) && grouped[prevIdx].type === 'dispel' && grouped[prevIdx].target === backEv.target) {
+            backDispel = grouped[prevIdx];
+            consumed.add(prevIdx);
+          }
+          consumed.add(backIdx);
+          events.push({
+            ...ev,
+            pierceHit: backDispel ? { ...backEv, dispel: backDispel } : backEv,
+          });
+          continue;
+        }
+      }
+      events.push(ev);
     }
     this.onEvent = onEvent;
     this.onComplete = onComplete;
@@ -269,30 +405,76 @@ export class Battlefield {
       if (!ev) break;
       const start = this.eventStart(i);
       const contact = start + this.eventContactDelay(i);
-      if ((ev.killed || ev.damage?.killed) && ev.target && deathStartMs[ev.target] === undefined) {
-        curDead.add(ev.target);
-        deathStartMs[ev.target] = contact;
+      if (ev.type === 'projectile' && ev.form === 'spear' && ev.pierceHit) {
+        const duration = this.eventEnds[i] - start;
+        const frontIdx = enemies.findIndex(enemy => enemy.id === ev.target);
+        const backIdx = enemies.findIndex(enemy => enemy.id === ev.pierceHit.target);
+        const frontBaseX = curPositions[frontIdx] ?? 180;
+        const backBaseX = curPositions[backIdx] ?? Math.min(290, frontBaseX + 36);
+        const frontTargetX = ev.blocked && enemies[frontIdx]
+          ? frontBaseX - this.enemyWardWidth(enemies[frontIdx]) / 2 + 3
+          : frontBaseX;
+        const backTargetX = ev.pierceHit.blocked && enemies[backIdx]
+          ? backBaseX - this.enemyWardWidth(enemies[backIdx]) / 2 + 3
+          : backBaseX;
+        const backContactFrac = this.settings.reducedMotion ? 0 : 0.72;
+        const frontRatio = Math.max(0.28, Math.min(0.84, (frontTargetX - 76) / Math.max(1, backTargetX - 76)));
+        const frontContactFrac = this.settings.reducedMotion ? 0 : backContactFrac * frontRatio;
+        ev.frontContactFrac = frontContactFrac;
+        ev.backContactFrac = backContactFrac;
+        const frontAt = start + duration * frontContactFrac;
+        const backAt = start + duration * backContactFrac;
+        if (ev.blocked && ev.target) {
+          curWards[ev.target] = Math.max(0, (curWards[ev.target] ?? 0) - 1);
+          ev.wardRemaining = curWards[ev.target];
+        }
+        if ((ev.killed || ev.damage?.killed) && ev.target && deathStartMs[ev.target] === undefined) {
+          curDead.add(ev.target);
+          deathStartMs[ev.target] = frontAt;
+        }
+        this.contacts.push({ event: { ...ev, pierceHit: undefined }, at: frontAt, index: i });
+        if (ev.pierceHit.dispel && ev.pierceHit.target) {
+          const dispelEv = ev.pierceHit.dispel;
+          curWards[ev.pierceHit.target] = Math.max(0, (curWards[ev.pierceHit.target] ?? 0) - (dispelEv.amount ?? 1));
+          dispelEv.wardRemaining = curWards[ev.pierceHit.target];
+          const dispelAt = start + duration * Math.max(frontContactFrac + 0.03, backContactFrac - 0.05);
+          this.contacts.push({ event: dispelEv, at: dispelAt, index: i });
+        }
+        if (ev.pierceHit.blocked && ev.pierceHit.target) {
+          curWards[ev.pierceHit.target] = Math.max(0, (curWards[ev.pierceHit.target] ?? 0) - 1);
+          ev.pierceHit.wardRemaining = curWards[ev.pierceHit.target];
+        }
+        if ((ev.pierceHit.killed || ev.pierceHit.damage?.killed) && ev.pierceHit.target && deathStartMs[ev.pierceHit.target] === undefined) {
+          curDead.add(ev.pierceHit.target);
+          deathStartMs[ev.pierceHit.target] = backAt;
+        }
+        this.contacts.push({ event: { ...ev.pierceHit, spearPierceSilentLaunch: true }, at: backAt, index: i });
+      } else {
+        if ((ev.killed || ev.damage?.killed) && ev.target && deathStartMs[ev.target] === undefined) {
+          curDead.add(ev.target);
+          deathStartMs[ev.target] = contact;
+        }
+        if (ev.type === 'push') {
+          const idx = enemies.findIndex(enemy => enemy.id === ev.target);
+          if (idx >= 0) curPositions[idx] = this.enemyX(enemies[idx], ev.slot);
+        }
+        if (ev.type === 'swap') {
+          const source = enemies.findIndex(enemy => enemy.id === ev.source);
+          const target = enemies.findIndex(enemy => enemy.id === ev.target);
+          curPositions[source] = this.enemyX(enemies[source], ev.sourceSlot);
+          curPositions[target] = this.enemyX(enemies[target], ev.slot);
+        }
+        if (ev.type === 'magma-puddle') newPuddles.add(ev.slot);
+        if (ev.type === 'magma-erupt') oldPuddles.delete(ev.slot);
+        if (ev.type === 'blackhole-open') newBlackhole = ev.slot;
+        if (ev.type === 'blast' && ev.element === 'blackhole') oldBlackhole = undefined;
+        if ((ev.type === 'dispel' || (ev.type === 'projectile' && ev.blocked)) && ev.target) {
+          const removed = ev.type === 'dispel' ? ev.amount : 1;
+          curWards[ev.target] = Math.max(0, (curWards[ev.target] ?? 0) - removed);
+          ev.wardRemaining = curWards[ev.target];
+        }
+        this.contacts.push({ event: ev, at: contact, index: i });
       }
-      if (ev.type === 'push') {
-        const idx = enemies.findIndex(enemy => enemy.id === ev.target);
-        if (idx >= 0) curPositions[idx] = this.enemyX(enemies[idx], ev.slot);
-      }
-      if (ev.type === 'swap') {
-        const source = enemies.findIndex(enemy => enemy.id === ev.source);
-        const target = enemies.findIndex(enemy => enemy.id === ev.target);
-        curPositions[source] = this.enemyX(enemies[source], ev.sourceSlot);
-        curPositions[target] = this.enemyX(enemies[target], ev.slot);
-      }
-      if (ev.type === 'magma-puddle') newPuddles.add(ev.slot);
-      if (ev.type === 'magma-erupt') oldPuddles.delete(ev.slot);
-      if (ev.type === 'blackhole-open') newBlackhole = ev.slot;
-      if (ev.type === 'blast' && ev.element === 'blackhole') oldBlackhole = undefined;
-      if ((ev.type === 'dispel' || (ev.type === 'projectile' && ev.blocked)) && ev.target) {
-        const removed = ev.type === 'dispel' ? ev.amount : 1;
-        curWards[ev.target] = Math.max(0, (curWards[ev.target] ?? 0) - removed);
-        ev.wardRemaining = curWards[ev.target];
-      }
-      this.contacts.push({ event: ev, at: contact, index: i });
       if (ev.type === 'blast') {
         const centerIndex = enemies.findIndex(enemy => enemy.id === ev.target);
         const center = this.blastX(ev, enemies[centerIndex], curPositions[centerIndex] ?? 230);
@@ -368,6 +550,26 @@ export class Battlefield {
   }
   configure(settings) { this.settings = settings; }
   enemyX(enemy, slot = enemy.slot) {
+    if ((this.state?.room === FLOOR30_BOSS_ROOM || this.state?.room === FLOOR40_BOSS_ROOM || this.state?.room === FLOOR50_BOSS_ROOM || this.state?.room === FLOOR60_BOSS_ROOM || this.state?.room === FLOOR70_BOSS_ROOM) && this.state.enemies?.some(e => resolveBossArt(e.kind, this.bossVisuals) && resolveBossLayer(e.kind, this.bossVisuals) === 'rear')) {
+      const mode = this.bossVisuals?.rearFormation ?? 'B';
+      const isF50 = this.state?.room === FLOOR50_BOSS_ROOM;
+      const isF60OrF70 = this.state?.room === FLOOR60_BOSS_ROOM || this.state?.room === FLOOR70_BOSS_ROOM;
+      const map = isF60OrF70
+        ? { boss: 228, m0: 172, m1: 220, m2: 268 }
+        : isF50
+          ? { boss: 226, m0: 172, m1: 220, m2: 268 }
+          : mode === 'A'
+            ? { boss: 244, m0: 167, m1: 208 }
+            : mode === 'C'
+              ? { boss: 225, m0: 190, m1: 260 }
+              : { boss: 230, m0: 195, m1: 260 };
+      if (enemy && resolveBossLayer(enemy.kind, this.bossVisuals) === 'rear') return map.boss;
+      const minions = this.state.enemies.filter(e => !resolveBossArt(e.kind, this.bossVisuals) || resolveBossLayer(e.kind, this.bossVisuals) !== 'rear');
+      const mIdx = minions.findIndex(e => (enemy?.id !== undefined && e.id === enemy.id) || e.slot === slot);
+      if (mIdx === 0) return map.m0;
+      if (mIdx === 1) return map.m1;
+      if (mIdx === 2 && map.m2 !== undefined) return map.m2;
+    }
     if (this.state?.room >= FLOOR21_START_ROOM) return 126 + slot * 41;
     if (LARGE_BOSS_KINDS.has(enemy.kind)) return 235 + slot * 10;
     return this.state?.enemies.length === 1 ? 216 + slot * 17 : 149 + slot * 33;
@@ -384,13 +586,90 @@ export class Battlefield {
     if (event?.element === 'blackhole' && event.originSlot !== undefined) return this.puddleX(event.originSlot);
     return enemy && event?.originSlot !== undefined ? this.enemyX(enemy, event.originSlot) : targetX;
   }
+  drawBossLocalEffects(effects, metrics, now, partStates = null) {
+    if (!effects?.length || !metrics) return;
+    const resolvePt = (anchorKey, partKey, dx = 0, dy = 0) => {
+      const pt = metrics[anchorKey];
+      if (!pt) return null;
+      const ps = partKey ? partStates?.[partKey] : null;
+      return {
+        x: Math.round(pt.x + (ps?.dx ?? 0) + dx),
+        y: Math.round(pt.y + (ps?.dy ?? 0) + dy),
+      };
+    };
+    for (const fx of effects) {
+      if (fx.type === 'groundShadow') {
+        this.pixelEllipse(metrics.ground.x, 146, fx.rx ?? 18, fx.ry ?? 3, fx.color ?? C[fx.colorIndex ?? 0], false);
+      } else if (fx.type === 'groundSpark') {
+        this.pixelDiamond(metrics.ground.x + (fx.dx ?? 0), fx.y ?? 145, fx.radius ?? 1, fx.color ?? C[fx.colorIndex ?? 27], fx.coreColor ?? C[fx.coreIndex ?? 9]);
+      } else if (fx.type === 'anchorBolt') {
+        const pt = resolvePt(fx.anchor, fx.part);
+        if (pt) {
+          this.pixelBolt(pt.x + (fx.dx1 ?? 0), pt.y + (fx.dy1 ?? 0), pt.x + (fx.dx2 ?? 0), pt.y + (fx.dy2 ?? 0), fx.seed ?? now * 0.05, fx.color ?? C[fx.colorIndex ?? 27], fx.coreColor ?? C[fx.coreIndex ?? 9]);
+        }
+      } else if (fx.type === 'linkBolt') {
+        const a = resolvePt(fx.from, fx.fromPart, fx.dx1 ?? 0, fx.dy1 ?? 0);
+        const b = resolvePt(fx.to, fx.toPart, fx.dx2 ?? 0, fx.dy2 ?? 0);
+        if (a && b) {
+          this.pixelBolt(a.x, a.y, b.x, b.y, fx.seed ?? now * 0.06, fx.color ?? C[fx.colorIndex ?? 27], fx.coreColor ?? C[fx.coreIndex ?? 9]);
+        }
+      } else if (fx.type === 'orbitDiamonds') {
+        for (const key of fx.anchors ?? []) {
+          const anchor = metrics[key];
+          if (!anchor) continue;
+          const count = fx.count ?? 3;
+          for (let i = 0; i < count; i++) {
+            const ang = now / (fx.speed ?? 240) + i * ((Math.PI * 2) / count);
+            const px = Math.round(anchor.x + Math.cos(ang) * (fx.rx ?? 11));
+            const py = Math.round(anchor.y + (fx.offsetY ?? 0) + Math.sin(ang) * (fx.ry ?? 7));
+            this.pixelDiamond(px, py, i === 0 ? 2 : 1, fx.color ?? C[27], fx.coreColor ?? C[9]);
+          }
+        }
+      } else if (fx.type === 'fateThread') {
+        const a = metrics[fx.from];
+        const b = metrics[fx.to];
+        if (!a || !b) continue;
+        const ax = a.x + (fx.dx1 ?? 0);
+        const ay = a.y + (fx.dy1 ?? 0);
+        const bx = b.x + (fx.dx2 ?? 0);
+        const by = b.y + (fx.dy2 ?? 0);
+        const steps = 10;
+        const g = this.ctx;
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          const px = Math.round(ax + (bx - ax) * t);
+          const py = Math.round(ay + (by - ay) * t + Math.sin(t * Math.PI) * (fx.sag ?? 3));
+          const isPulse = !this.settings.reducedMotion && ((i + (fx.phase ?? 0)) % 5 === 0);
+          g.fillStyle = isPulse ? (fx.pulseColor ?? '#ffffff') : (fx.color ?? '#d982ff');
+          g.fillRect(px, py, 1, 1);
+        }
+      }
+    }
+  }
+  getEnemyVisualMetrics(enemy, x, baseline = 146, bob = 0) {
+    const bossV2 = enemy ? resolveBossArt(enemy.kind, this.bossVisuals) : null;
+    if (!bossV2) return null;
+    return getBossVisualBounds(enemy.kind, x, baseline, bob, bossV2, this.bossVisuals);
+  }
   hitTest(clientX, clientY) {
     const rect = this.canvas.getBoundingClientRect();
     const x = (clientX - rect.left) * 320 / rect.width;
     const y = (clientY - rect.top) * 180 / rect.height;
-    if (y < 70 || y > 153) return null;
     const positions = this.positions();
-    return this.state?.enemies.find((enemy, i) => enemy.hp > 0 && Math.abs(positions[i] - x) < (LARGE_BOSS_KINDS.has(enemy.kind) || ['elite', 'sentinel'].includes(enemy.kind) ? 30 : 23))?.id || null;
+    // Check foreground actors first, then rear-layer bosses
+    const ordered = (this.state?.enemies ?? [])
+      .map((enemy, i) => ({ enemy, i, rear: resolveBossLayer(enemy.kind, this.bossVisuals) === 'rear' ? 1 : 0 }))
+      .sort((a, b) => a.rear - b.rear || a.i - b.i);
+    for (const { enemy, i } of ordered) {
+      if (enemy.hp <= 0) continue;
+      const metrics = this.getEnemyVisualMetrics(enemy, positions[i], 146, 0);
+      if (metrics) {
+        if (x >= metrics.left && x <= metrics.right && y >= metrics.top && y <= metrics.bottom) return enemy.id;
+      } else if (y >= 70 && y <= 153 && Math.abs(positions[i] - x) < (LARGE_BOSS_KINDS.has(enemy.kind) || ['elite', 'sentinel'].includes(enemy.kind) ? 30 : 23)) {
+        return enemy.id;
+      }
+    }
+    return null;
   }
   paintRoom(g) {
     const r = (x, y, w, h, color) => { g.fillStyle = color; g.fillRect(x, y, w, h); };
@@ -443,6 +722,33 @@ export class Battlefield {
     if (pose === 'dead') {
       const width = Math.max(4, 18 - frame % 4 * 3);
       g.fillStyle = C[4]; g.fillRect(x - width / 2, baseline - 3, width, 3);
+      return;
+    }
+    const bossV2 = resolveBossArt(originalKind, this.bossVisuals);
+    if (bossV2) {
+      const bounds = bossV2.opaqueBounds;
+      const v2Scale = resolveBossScale(originalKind, bossV2, this.bossVisuals);
+      const offset = resolveBossOffset(originalKind, this.bossVisuals);
+      const centerX = (bounds.minX + bounds.maxX + 1) / 2;
+      const v2Left = Math.round(x + offset.x - centerX * v2Scale);
+      const v2Top = Math.round(baseline + bob + offset.baseline - (bounds.maxY + 1) * v2Scale);
+      const attacking = pose === 'attack';
+      const charging = pose === 'charge';
+      const anim = evaluateBossAnimation(bossV2, {
+        frame,
+        pose,
+        progress,
+        reducedMotion: Boolean(this.settings.reducedMotion),
+        now: performance.now(),
+        colors: bossV2.colors,
+        attacking,
+        charging,
+        hurt: pose === 'hurt',
+        armor: this._bossArmor ?? null,
+        grounded: Boolean(this._bossGrounded),
+        reflecting: Boolean(this._bossReflecting),
+      });
+      drawBossArt(g, bossV2, v2Left, v2Top, v2Scale, anim.materialOverrides, anim.partStates);
       return;
     }
     const palette = originalKind === 'wizard' ? C : (alternate ? this.alternateEnemyPalette : this.enemyPalette) ?? C;
@@ -762,55 +1068,68 @@ export class Battlefield {
     this.pixelDiamond(orbX, orbY, orbR, color, C[9]);
   }
 
-  drawSummonSprite(summon, x, baseline, frame, event, progress) {
+  drawSummonSprite(summon, x, baseline, frame, event, progress, deferHealth = false) {
     const g = this.ctx;
+    const summonBeingHit = event && (
+      event.type === 'summon_hit'
+      || (event.type === 'attack' && event.target === 'summon' && (progress || 0) >= 0.62)
+    );
     const lunge = (event && (event.type === 'summon_strike' || event.type === 'summon_relay') && !this.settings.reducedMotion)
       ? Math.round(Math.sin((progress || 0) * Math.PI) * 16)
       : (event && event.type === 'summon_counter' && !this.settings.reducedMotion)
         ? Math.round(Math.sin((progress || 0) * Math.PI) * 8)
-        : (event && event.type === 'summon_hit' && !this.settings.reducedMotion && frame % 2)
+        : (summonBeingHit && !this.settings.reducedMotion && frame % 2)
           ? -3
           : 0;
+    const cid = summon.creatureId;
+    const art = resolveSummonArt(cid, this.summonVisuals);
+    const grand = Boolean(art && summon.isGrand);
+    let scale = resolveCreatureScale(cid, grand, art, this.summonVisuals);
+    if (grand && event?.type === 'summon_invoke' && !this.settings.reducedMotion) {
+      const time = Math.max(0, Math.min(1, progress ?? 0));
+      const pulse = Math.min(time / 0.28, (1 - time) / 0.72);
+      const smooth = pulse * pulse * (3 - 2 * pulse);
+      const peakScale = Math.max(scale, Math.min(4, (baseline - 2) / art.height, (x * 2) / art.width));
+      scale += (peakScale - scale) * smooth;
+    }
     const sx = x + lunge;
     const r = (a, b, w, h, c) => { g.fillStyle = c; g.fillRect(sx + a - 12, baseline + b - 24, w, h); };
     const bob = this.settings.reducedMotion ? 0 : [0, -1, 0, 1][frame % 4];
     const elem = summon.element;
+    const artHeight = art ? Math.round(art.height * scale) : 0;
+    const lift = art ? Math.min(Math.round(art.lift * scale), Math.max(0, baseline - artHeight - 6)) : 0;
+    const artTop = art ? baseline - artHeight - lift + (lift ? bob : 0) : null;
     const elemImpact = ELEMENT_IMPACT[elem] || null;
-    const bodyColor = elemImpact ? elemImpact.secondary : C[12];
-    const highlight = elemImpact ? elemImpact.primary : C[14];
-    const coreColor = elemImpact ? elemImpact.core : C[31];
-    const rimColor = elemImpact ? elemImpact.rim : C[30];
+    const fusion = fusionSummonPalette(elem, this.summonVisuals);
+    const bodyColor = fusion?.shadow ?? elemImpact?.secondary ?? C[12];
+    const highlight = fusion?.highlight ?? elemImpact?.primary ?? C[14];
+    const coreColor = fusion?.core ?? elemImpact?.core ?? C[31];
+    const rimColor = fusion?.rim ?? elemImpact?.rim ?? C[30];
 
     // Summon shadow and aura
-    g.fillStyle = C[0]; g.fillRect(sx - 12, baseline - 1, 24, 3);
-    const auraColor = elementColor[elem] ?? C[28];
-    this.pixelEllipse(sx, baseline - 1, 12, 3, auraColor, false);
+    const auraRadius = art ? Math.round(art.width * scale * (lift ? 0.31 : 0.43)) : 12;
+    g.fillStyle = C[0];
+    g.fillRect(sx - auraRadius, baseline - 1, auraRadius * 2, 3);
+    if (this.summonVisuals?.aura !== false) {
+      const auraColor = fusion?.aura ?? elementColor[elem] ?? C[28];
+      this.pixelEllipse(sx, baseline - 1, auraRadius, 3, auraColor, false);
+      if (grand) this.pixelEllipse(sx, baseline - 1, auraRadius + 3, 5, rimColor, false);
 
-    // Ambient floating elemental sparks
-    if (elem && !this.settings.reducedMotion) {
-      for (let i = 0; i < 3; i++) {
-        const px = sx - 10 + ((frame * 7 + i * 9) % 20);
-        const py = baseline - 8 - ((Math.floor(Date.now() / 120) + i * 5) % 18) + bob;
-        g.fillStyle = i % 2 ? rimColor : highlight;
-        g.fillRect(px, py, 2, 2);
+      // Ambient floating elemental sparks
+      if (elem && !this.settings.reducedMotion) {
+        const sparkTick = Math.floor((this.summonVisuals?.previewTime ?? Date.now()) / 120);
+        for (let i = 0; i < 3; i++) {
+          const px = sx - 10 + ((frame * 7 + i * 9) % 20);
+          const py = baseline - 8 - ((sparkTick + i * 5) % 18) + bob;
+          g.fillStyle = i % 2 ? rimColor : fusion?.spark ?? highlight;
+          g.fillRect(px, py, 2, 2);
+        }
       }
     }
 
-    // Creature-specific 16-bit pixel silhouettes across all 27 creatures
-    const cid = summon.creatureId;
-    if (cid === 'dog') {
-      r(14, 5 + bob, 7, 6, bodyColor);
-      r(12, 5 + bob, 3, 5, highlight);
-      r(15, 4 + bob, 3, 4, highlight);
-      r(19, 8 + bob, 4, 3, highlight);
-      r(22, 8 + bob, 2, 2, C[0]);
-      r(17, 7 + bob, 2, 2, coreColor);
-      r(13, 10 + bob, 3, 2, rimColor);
-      r(5, 9 + bob, 10, 8, bodyColor);
-      r(5, 17 + bob, 3, 7, bodyColor);
-      r(12, 17 + bob, 3, 7, bodyColor);
-      r(2, 6 + bob, 3, 4, highlight);
-      r(4, 9 + bob, 2, 3, bodyColor);
+    if (art) {
+      drawSummonArt(g, art, sx - Math.floor(art.width * scale / 2), artTop, scale,
+        fusion ?? fusedSummonPalettes.get(elem) ?? elemImpact, this.summonVisuals?.marks);
     } else if (cid === 'bird') {
       r(13, 5 + bob, 6, 6, bodyColor);
       r(19, 7 + bob, 4, 2, rimColor);
@@ -820,17 +1139,6 @@ export class Battlefield {
       r(2, 12 + bob, 5, 4, highlight);
       r(9, 17 + bob, 2, 4, rimColor);
       r(12, 17 + bob, 2, 4, rimColor);
-    } else if (cid === 'cat') {
-      r(12, 2 + bob, 3, 4, highlight);
-      r(16, 2 + bob, 3, 4, highlight);
-      r(12, 5 + bob, 7, 6, bodyColor);
-      r(14, 7 + bob, 2, 2, rimColor);
-      r(17, 7 + bob, 2, 2, rimColor);
-      r(6, 10 + bob, 8, 7, bodyColor);
-      r(2, 7 + bob, 3, 2, highlight);
-      r(2, 9 + bob, 2, 6, bodyColor);
-      r(6, 17 + bob, 2, 7, bodyColor);
-      r(12, 17 + bob, 2, 7, bodyColor);
     } else if (cid === 'snake') {
       r(12, 4 + bob, 8, 7, highlight);
       r(14, 5 + bob, 6, 5, bodyColor);
@@ -847,16 +1155,6 @@ export class Battlefield {
       r(10, 13 + bob, 4, 4, rimColor);
       r(8, 11 + bob, 2, 3, C[0]);
       r(14, 11 + bob, 2, 3, C[0]);
-    } else if (cid === 'bat') {
-      r(0, 6 + bob, 8, 11, highlight);
-      r(16, 6 + bob, 8, 11, highlight);
-      r(8, 8 + bob, 8, 9, bodyColor);
-      r(8, 4 + bob, 3, 4, bodyColor);
-      r(13, 4 + bob, 3, 4, bodyColor);
-      r(10, 9 + bob, 2, 2, rimColor);
-      r(13, 9 + bob, 2, 2, rimColor);
-      r(10, 13 + bob, 1, 2, coreColor);
-      r(13, 13 + bob, 1, 2, coreColor);
     } else if (cid === 'turtle') {
       r(4, 8 + bob, 16, 11, bodyColor);
       r(3, 17 + bob, 18, 3, highlight);
@@ -877,37 +1175,6 @@ export class Battlefield {
       r(18, 13 + bob, 4, 9, bodyColor);
       r(7, 19 + bob, 3, 4, bodyColor);
       r(14, 19 + bob, 3, 4, bodyColor);
-    } else if (cid === 'spider') {
-      r(9, 7 + bob, 6, 6, bodyColor);
-      r(6, 12 + bob, 12, 9, highlight);
-      r(10, 8 + bob, 2, 2, rimColor);
-      r(13, 8 + bob, 2, 2, rimColor);
-      r(0, 5 + bob, 4, 8, bodyColor);
-      r(20, 5 + bob, 4, 8, bodyColor);
-      r(1, 12 + bob, 4, 10, bodyColor);
-      r(19, 12 + bob, 4, 10, bodyColor);
-    } else if (cid === 'rat') {
-      r(17, 11 + bob, 4, 3, highlight);
-      r(20, 11 + bob, 2, 2, C[0]);
-      r(12, 6 + bob, 4, 4, highlight);
-      r(15, 6 + bob, 4, 4, highlight);
-      r(6, 10 + bob, 10, 8, bodyColor);
-      r(0, 16 + bob, 3, 2, highlight);
-      r(3, 14 + bob, 2, 4, highlight);
-      r(5, 16 + bob, 2, 2, bodyColor);
-      r(7, 18 + bob, 2, 5, bodyColor);
-      r(13, 18 + bob, 2, 5, bodyColor);
-    } else if (cid === 'wolf') {
-      r(12, 4 + bob, 8, 7, bodyColor);
-      r(11, 1 + bob, 3, 4, highlight);
-      r(15, 1 + bob, 3, 4, highlight);
-      r(18, 7 + bob, 6, 4, highlight);
-      r(14, 6 + bob, 2, 2, rimColor);
-      r(8, 7 + bob, 6, 8, highlight);
-      r(4, 10 + bob, 10, 8, bodyColor);
-      r(0, 11 + bob, 4, 8, highlight);
-      r(5, 17 + bob, 3, 7, bodyColor);
-      r(13, 17 + bob, 3, 7, bodyColor);
     } else if (cid === 'bear') {
       r(4, 5 + bob, 16, 13, bodyColor);
       r(13, 3 + bob, 3, 3, highlight);
@@ -916,14 +1183,6 @@ export class Battlefield {
       r(16, 7 + bob, 2, 2, coreColor);
       r(5, 17 + bob, 5, 7, bodyColor);
       r(14, 17 + bob, 5, 7, bodyColor);
-    } else if (cid === 'eagle') {
-      r(18, 7 + bob, 5, 4, rimColor);
-      r(14, 5 + bob, 3, 3, coreColor);
-      r(9, 3 + bob, 6, 4, highlight);
-      r(2, 7 + bob, 8, 11, highlight);
-      r(9, 8 + bob, 8, 9, bodyColor);
-      r(9, 18 + bob, 3, 5, rimColor);
-      r(14, 18 + bob, 3, 5, rimColor);
     } else if (cid === 'boar') {
       r(18, 9 + bob, 3, 4, coreColor);
       r(19, 7 + bob, 2, 3, coreColor);
@@ -933,137 +1192,6 @@ export class Battlefield {
       r(4, 7 + bob, 13, 11, bodyColor);
       r(5, 18 + bob, 3, 6, bodyColor);
       r(13, 18 + bob, 3, 6, bodyColor);
-    } else if (cid === 'croc') {
-      r(13, 10 + bob, 10, 4, bodyColor);
-      r(15, 12 + bob, 7, 1, coreColor);
-      r(5, 7 + bob, 10, 3, highlight);
-      r(4, 9 + bob, 12, 8, bodyColor);
-      r(5, 17 + bob, 4, 6, bodyColor);
-      r(13, 17 + bob, 4, 6, bodyColor);
-      r(0, 12 + bob, 5, 5, highlight);
-    } else if (cid === 'skeleton') {
-      r(10, 2 + bob, 7, 6, coreColor);
-      r(12, 4 + bob, 2, 2, C[0]);
-      r(11, 8 + bob, 5, 7, coreColor);
-      r(11, 15 + bob, 5, 3, coreColor);
-      r(10, 18 + bob, 2, 6, coreColor);
-      r(14, 18 + bob, 2, 6, coreColor);
-      r(17, 4 + bob, 2, 8, coreColor);
-      r(17, 2 + bob, 6, 2, rimColor);
-    } else if (cid === 'hornet') {
-      r(2, 11 + bob, 8, 8, highlight);
-      r(4, 13 + bob, 2, 6, C[0]);
-      r(7, 12 + bob, 2, 5, C[0]);
-      r(1, 17 + bob, 3, 3, C[0]);
-      r(9, 10 + bob, 2, 4, bodyColor);
-      r(11, 7 + bob, 6, 6, bodyColor);
-      r(15, 7 + bob, 3, 3, rimColor);
-      r(7, 2 + bob, 7, 5, coreColor);
-      r(13, 1 + bob, 6, 5, coreColor);
-      r(11, 15 + bob, 2, 6, bodyColor);
-      r(14, 15 + bob, 2, 6, bodyColor);
-    } else if (cid === 'golem') {
-      r(2, 3 + bob, 20, 8, bodyColor);
-      r(4, 9 + bob, 16, 9, bodyColor);
-      r(10, 11 + bob, 4, 4, coreColor);
-      r(9, 5 + bob, 6, 2, rimColor);
-      r(0, 8 + bob, 4, 12, highlight);
-      r(20, 8 + bob, 4, 12, highlight);
-      r(5, 18 + bob, 5, 6, bodyColor);
-      r(14, 18 + bob, 5, 6, bodyColor);
-    } else if (cid === 'lion') {
-      r(9, 2 + bob, 11, 11, highlight);
-      r(13, 5 + bob, 5, 5, bodyColor);
-      r(15, 6 + bob, 2, 2, rimColor);
-      r(4, 9 + bob, 11, 8, bodyColor);
-      r(5, 17 + bob, 3, 7, bodyColor);
-      r(12, 17 + bob, 3, 7, bodyColor);
-      r(1, 9 + bob, 2, 7, bodyColor);
-      r(0, 8 + bob, 3, 3, highlight);
-    } else if (cid === 'siren') {
-      r(9, 2 + bob, 8, 8, highlight);
-      r(10, 7 + bob, 5, 6, bodyColor);
-      r(12, 5 + bob, 2, 2, coreColor);
-      r(6, 8 + bob, 4, 4, bodyColor);
-      r(15, 8 + bob, 4, 4, bodyColor);
-      r(7, 13 + bob, 9, 6, highlight);
-      r(4, 18 + bob, 14, 4, rimColor);
-      r(3, 16 + bob, 2, 2, coreColor);
-      r(18, 16 + bob, 2, 2, coreColor);
-    } else if (cid === 'gargoyle') {
-      r(10, 3 + bob, 6, 6, bodyColor);
-      r(9, 1 + bob, 2, 3, highlight);
-      r(15, 1 + bob, 2, 3, highlight);
-      r(11, 5 + bob, 2, 2, rimColor);
-      r(14, 5 + bob, 2, 2, rimColor);
-      r(4, 21 + bob, 16, 3, C[11]);
-      r(2, 4 + bob, 6, 12, highlight);
-      r(18, 4 + bob, 6, 12, highlight);
-      r(7, 18 + bob, 3, 4, bodyColor);
-      r(14, 18 + bob, 3, 4, bodyColor);
-    } else if (cid === 'sprite') {
-      r(11, 6 + bob, 4, 7, bodyColor);
-      r(12, 5 + bob, 2, 2, coreColor);
-      r(3, 2 + bob, 8, 9, coreColor);
-      r(14, 2 + bob, 8, 9, coreColor);
-      r(16, 7 + bob, 3, 3, rimColor);
-      r(8, 16 + bob, 2, 2, coreColor);
-      r(13, 17 + bob, 2, 2, rimColor);
-      r(10, 19 + bob, 2, 2, highlight);
-    } else if (cid === 'hydra') {
-      r(2, 3 + bob, 5, 4, highlight);
-      r(4, 6 + bob, 3, 6, bodyColor);
-      r(3, 4 + bob, 2, 2, rimColor);
-      r(10, 0 + bob, 5, 4, highlight);
-      r(11, 3 + bob, 3, 8, bodyColor);
-      r(12, 1 + bob, 2, 2, rimColor);
-      r(17, 3 + bob, 5, 4, highlight);
-      r(16, 6 + bob, 3, 6, bodyColor);
-      r(18, 4 + bob, 2, 2, rimColor);
-      r(4, 11 + bob, 16, 8, bodyColor);
-      r(5, 18 + bob, 4, 6, bodyColor);
-      r(14, 18 + bob, 4, 6, bodyColor);
-    } else if (cid === 'behemoth') {
-      r(2, 4 + bob, 20, 14, bodyColor);
-      r(20, 6 + bob, 4, 4, coreColor);
-      r(4, 2 + bob, 4, 3, highlight);
-      r(10, 2 + bob, 4, 3, highlight);
-      r(15, 2 + bob, 4, 3, highlight);
-      r(17, 7 + bob, 2, 2, rimColor);
-      r(3, 17 + bob, 6, 7, bodyColor);
-      r(14, 17 + bob, 6, 7, bodyColor);
-    } else if (cid === 'kraken') {
-      r(6, 2 + bob, 12, 9, bodyColor);
-      r(10, 7 + bob, 4, 3, rimColor);
-      r(11, 8 + bob, 2, 1, C[0]);
-      r(0, 9 + bob, 4, 12, highlight);
-      r(2, 12 + bob, 2, 2, coreColor);
-      r(5, 11 + bob, 3, 11, bodyColor);
-      r(10, 11 + bob, 3, 12, highlight);
-      r(15, 11 + bob, 3, 11, bodyColor);
-      r(19, 9 + bob, 4, 12, highlight);
-      r(20, 12 + bob, 2, 2, coreColor);
-    } else if (cid === 'dragon') {
-      r(12, 1 + bob, 3, 4, highlight);
-      r(16, 1 + bob, 3, 4, rimColor);
-      r(17, 6 + bob, 6, 4, highlight);
-      r(15, 5 + bob, 2, 2, rimColor);
-      r(0, 2 + bob, 9, 12, highlight);
-      r(8, 2 + bob, 4, 8, bodyColor);
-      r(9, 9 + bob, 7, 8, coreColor);
-      r(8, 17 + bob, 3, 7, bodyColor);
-      r(14, 17 + bob, 3, 7, bodyColor);
-      r(1, 13 + bob, 5, 5, highlight);
-    } else if (cid === 'phoenix') {
-      r(11, 0 + bob, 4, 5, rimColor);
-      r(17, 5 + bob, 4, 3, rimColor);
-      r(14, 4 + bob, 2, 2, coreColor);
-      r(0, 3 + bob, 9, 11, highlight);
-      r(15, 3 + bob, 8, 10, highlight);
-      r(9, 7 + bob, 7, 8, coreColor);
-      r(2, 15 + bob, 3, 9, rimColor);
-      r(6, 17 + bob, 3, 7, highlight);
-      r(9, 18 + bob, 2, 6, coreColor);
     } else {
       r(6, 4 + bob, 12, 16, bodyColor);
       r(8, 6 + bob, 8, 12, highlight);
@@ -1073,14 +1201,21 @@ export class Battlefield {
       r(17, 10 + bob, 3, 8, bodyColor);
     }
 
-    // Overhead HP Bar
-    const hpRatio = Math.max(0, Math.min(1, summon.hp / summon.maxHp));
-    const barW = 20;
-    const barX = sx - barW / 2;
-    const barY = baseline - 28 + bob;
-    g.fillStyle = C[0]; g.fillRect(barX - 1, barY - 1, barW + 2, 4);
-    g.fillStyle = C[18]; g.fillRect(barX, barY, barW, 2);
-    g.fillStyle = C[20]; g.fillRect(barX, barY, Math.round(barW * hpRatio), 2);
+    const drawHealth = () => {
+      const hpRatio = Math.max(0, Math.min(1, summon.hp / Math.max(1, summon.maxHp)));
+      const barW = art ? Math.min(32, Math.max(20, Math.round(art.width * scale * 0.65))) : 20;
+      const barX = sx - Math.floor(barW / 2);
+      const barY = artTop === null ? baseline - 28 + bob : Math.max(5, artTop - 5);
+      const fillW = hpRatio > 0 ? Math.max(1, Math.round(barW * hpRatio)) : 0;
+      const fillColor = hpRatio > 0.5 ? C[26] : hpRatio > 0.25 ? C[30] : C[18];
+      g.fillStyle = C[0]; g.fillRect(barX - 1, barY - 1, barW + 2, 4);
+      g.fillStyle = C[16]; g.fillRect(barX, barY, barW, 2);
+      if (fillW > 0) {
+        g.fillStyle = fillColor; g.fillRect(barX, barY, fillW, 2);
+      }
+    };
+    if (deferHealth) return drawHealth;
+    drawHealth();
   }
 
   draw(now) {
@@ -1158,6 +1293,32 @@ export class Battlefield {
       this.pixelEllipse(this.puddleX(Number(this.target.at(-1))), 150, 15, 4, elementColor.blackhole, false);
     }
 
+    let activeSummon = playing && snap ? snap.summon : (this.state?.player?.summon || this.state?.summon);
+    if (event?.type === 'summon_invoke') {
+      activeSummon = {
+        creatureId: event.creature,
+        name: event.name || event.creature,
+        element: event.element,
+        isGrand: Boolean(event.isGrand),
+        hp: event.hp,
+        maxHp: event.maxHp ?? event.hp,
+      };
+    } else if (event?.type === 'summon_hit' && activeSummon) {
+      activeSummon = {
+        ...activeSummon,
+        hp: Math.max(0, event.hpRemaining ?? (activeSummon.hp - (event.damage ?? 0))),
+      };
+    } else if (event?.type === 'summon_rebirth' && activeSummon) {
+      activeSummon = { ...activeSummon, hp: event.hp ?? Math.ceil((activeSummon.maxHp ?? 1) / 2) };
+    }
+    const showSummon = activeSummon && (activeSummon.hp > 0
+      || ['summon_hit', 'summon_counter', 'summon_rebirth', 'summon_break'].includes(event?.type));
+    const summonAnchor = getSummonAnchor(activeSummon, this.summonVisuals);
+    const grandBehindActors = showSummon && activeSummon.isGrand
+      && Object.hasOwn(SUMMON_ART, activeSummon.creatureId);
+    const drawGrandHealth = grandBehindActors
+      ? this.drawSummonSprite(activeSummon, summonAnchor.x, summonAnchor.baseline, frame, event, progress, true) : null;
+
     const isCastingEvent = ['projectile', 'shield', 'shield-delay', 'heal', 'blast', 'fizzle', 'blackhole-open', 'timestop', 'ascension', 'summon', 'summon_invoke'].includes(event?.type)
       || (event?.type === 'damage' && event.element === 'death');
     const playerPose = isCastingEvent ? 'cast' : event?.type === 'attack' && impact && event.amount > 0 ? 'hurt' : this.state?.player.hp === 0 ? 'dead' : 'idle';
@@ -1172,7 +1333,8 @@ export class Battlefield {
     if (event?.type === 'shield') protection = event.protection ?? event;
     if (event?.type === 'brace') protection = event.protection;
     if (event?.type === 'blast' && event.protection) protection = event.protection;
-    const shieldHit = impact && event?.absorbed > 0;
+    const playerAbsorbed = event?.playerAbsorbed ?? (event?.target === 'summon' ? 0 : (event?.absorbed ?? 0));
+    const shieldHit = impact && playerAbsorbed > 0;
     const shieldCasting = event?.type === 'shield';
     if (protection.amount || shieldHit) {
       const [front, back] = protection.layerEffects ?? [];
@@ -1209,32 +1371,17 @@ export class Battlefield {
         this.drawShieldCastVfx(51, 119, progress, shieldScale, shieldElements, shieldOpts.shieldKind, protection.layers ?? 1);
       }
       const shieldName = protection.element === 'veil' ? 'ม่าน' : protection.element === 'brace' ? 'โล่ยืนหยัด' : shieldOpts.grand ? 'มหาโล่' : 'โล่';
-      this.barrierLabel(51, 79, shieldHit ? `กัน ${event.absorbed}${shieldBroke ? ` · ${shieldName}แตก` : ''}` : `${shieldName} ${protection.amount}`, shieldHit ? C[9] : C[8]);
+      this.barrierLabel(51, 79, shieldHit ? `กัน ${playerAbsorbed}${shieldBroke ? ` · ${shieldName}แตก` : ''}` : `${shieldName} ${protection.amount}`, shieldHit ? C[9] : C[8]);
     }
 
-    let activeSummon = playing && snap ? snap.summon : (this.state?.player?.summon || this.state?.summon);
-    if (event?.type === 'summon_invoke') {
-      activeSummon = {
-        creatureId: event.creature,
-        name: event.name || event.creature,
-        element: event.element,
-        isGrand: Boolean(event.isGrand),
-        hp: event.hp,
-        maxHp: event.maxHp ?? event.hp,
-      };
-    } else if (event?.type === 'summon_hit' && activeSummon) {
-      activeSummon = {
-        ...activeSummon,
-        hp: Math.max(0, event.hpRemaining ?? (activeSummon.hp - (event.damage ?? 0))),
-      };
-    } else if (event?.type === 'summon_rebirth' && activeSummon) {
-      activeSummon = { ...activeSummon, hp: event.hp ?? Math.ceil((activeSummon.maxHp ?? 1) / 2) };
-    }
-    if (activeSummon && (activeSummon.hp > 0 || event?.type === 'summon_hit')) {
-      this.drawSummonSprite(activeSummon, 88, 147, frame, event, progress);
+    if (showSummon && !grandBehindActors) {
+      this.drawSummonSprite(activeSummon, summonAnchor.x, summonAnchor.baseline, frame, event, progress);
     }
 
-    if (this.state) this.state.enemies.forEach((enemy, index) => {
+    const orderedEnemies = this.state ? this.state.enemies
+      .map((enemy, index) => ({ enemy, index, rear: resolveBossLayer(enemy.kind, this.bossVisuals) === 'rear' ? 0 : 1 }))
+      .sort((a, b) => a.rear - b.rear || a.index - b.index) : [];
+    orderedEnemies.forEach(({ enemy, index }) => {
       const alternateArt = this.alternateEnemyIds?.has(enemy.id);
       const x = positions[index];
       let moveSlot;
@@ -1243,7 +1390,17 @@ export class Battlefield {
       const movingX = moveSlot === undefined ? x : Math.round(x + (this.enemyX(enemy, moveSlot) - x) * (this.settings.reducedMotion ? 1 : progress));
       const blastHit = event?.type === 'blast' ? event.hits.find(hit => hit.damage.target === enemy.id) : null;
       const blastLanded = blastHit && (this.settings.reducedMotion || progress >= blastHit.arrival);
-      const landed = blastLanded ? blastHit.damage : impact && event?.target === enemy.id ? event.damage : null;
+      const spearFrontLanded = event?.type === 'projectile' && Boolean(event.pierceHit) && event.target === enemy.id
+        && (this.settings.reducedMotion || progress >= (event.frontContactFrac ?? 0.45));
+      const spearBackLanded = event?.type === 'projectile' && Boolean(event.pierceHit) && event.pierceHit.target === enemy.id
+        && (this.settings.reducedMotion || progress >= (event.backContactFrac ?? 0.72));
+      const landed = blastLanded
+        ? blastHit.damage
+        : spearFrontLanded
+          ? event.damage
+          : spearBackLanded
+            ? event.pierceHit.damage
+            : (!event?.pierceHit && impact && event?.target === enemy.id ? event.damage : null);
       const gone = enemy.hp <= 0 || Boolean(dead?.has(enemy.id)) || Boolean(landed?.killed);
       g.fillStyle = C[0]; g.fillRect(x - 14, 146, 28, 3);
       const hurt = (event?.type === 'damage' && event.target === enemy.id && event.amount > 0)
@@ -1260,20 +1417,42 @@ export class Battlefield {
       const deathStart = this.deathStartMs?.[enemy.id];
       const deathFrame = playing && deathStart !== undefined ? Math.max(0, Math.min(3, Math.floor((elapsed - deathStart) / 260 * 4))) : 3;
 
+      const v2Bob = this.settings.reducedMotion ? 0 : [0, -1, 0, 1][frame % 4];
+      const v2Metrics = this.getEnemyVisualMetrics(enemy, movingX + lunge, 146, v2Bob);
+
       if (!gone && this.target === enemy.id) {
-        this.pixelEllipse(x, 147, LARGE_BOSS_KINDS.has(enemy.kind) || ['elite', 'sentinel'].includes(enemy.kind) ? 22 : 15, 3, C[30], false);
+        const ringX = v2Metrics ? v2Metrics.ground.x : x;
+        const ringRx = v2Metrics ? Math.max(20, Math.round(v2Metrics.ward.width * 0.45)) : (LARGE_BOSS_KINDS.has(enemy.kind) || ['elite', 'sentinel'].includes(enemy.kind) ? 22 : 15);
+        this.pixelEllipse(ringX, 147, ringRx, 3, C[30], false);
         g.fillStyle = C[9];
-        g.fillRect(x - 6, 153, 12, 1); g.fillRect(x - 3, 155, 6, 1);
+        g.fillRect(ringX - 6, 153, 12, 1); g.fillRect(ringX - 3, 155, 6, 1);
       }
 
       const ward = snap ? (snap.wards[enemy.id] ?? enemy.ward) : enemy.ward;
-      const wardHit = ward > 0 && impact && event?.target === enemy.id
-        && (event.type === 'dispel' || (event.type === 'projectile' && event.blocked));
-      const wardBroke = wardHit && event.wardRemaining === 0;
-      const wardProgress = this.settings.reducedMotion ? 0 : (progress - contactDelay / segment) / (1 - contactDelay / segment);
+      const spearFrontWardHit = spearFrontLanded && event.blocked;
+      const spearBackWardHit = spearBackLanded && event.pierceHit.blocked;
+      const wardHit = ward > 0 && (
+        spearFrontWardHit
+        || spearBackWardHit
+        || (!event?.pierceHit && impact && event?.target === enemy.id
+          && (event.type === 'dispel' || (event.type === 'projectile' && event.blocked)))
+      );
+      const wardHitRemaining = spearFrontWardHit
+        ? event.wardRemaining
+        : spearBackWardHit
+          ? event.pierceHit.wardRemaining
+          : event?.wardRemaining;
+      const wardBroke = wardHit && wardHitRemaining === 0;
+      const wardStartFrac = spearFrontWardHit
+        ? (event.frontContactFrac ?? 0.45)
+        : spearBackWardHit
+          ? (event.backContactFrac ?? 0.72)
+          : contactDelay / segment;
+      const wardProgress = this.settings.reducedMotion ? 0 : Math.max(0, (progress - wardStartFrac) / Math.max(0.05, 1 - wardStartFrac));
       const artProgress = wardBroke ? wardProgress : progress;
       const supporting = enemy.kind === 'support' && event?.type === 'heal' && event.source === enemy.id;
-      const pose = gone ? 'dead' : wardBroke && enemy.kind === 'elite' ? 'break' : attacking || supporting ? 'attack'
+      const reflecting = event?.type === 'mirror-reflect' && event.source === enemy.id;
+      const pose = gone ? 'dead' : reflecting ? 'reflect' : wardBroke && enemy.kind === 'elite' ? 'break' : attacking || supporting ? 'attack'
         : enemy.kind === 'prism_crab' ? (enemy.armor <= 1 ? 'exposed' : 'idle')
         : hurt ? 'hurt' : ['charger', 'sentinel', 'rune_golem', 'storm_titan'].includes(enemy.kind) && charging ? 'charge'
         : ['charger', 'sentinel', 'rune_golem', 'storm_titan'].includes(enemy.kind) && this.state.turn % 2 === 0 ? 'ready'
@@ -1286,16 +1465,43 @@ export class Battlefield {
         g.restore();
       }
 
+      const bossV2Art = !gone && v2Metrics ? resolveBossArt(enemy.kind, this.bossVisuals) : null;
+      const bossGrounded = Boolean(enemy.groundedUntil >= (this.state?.turn ?? 0));
+      const bossReflecting = Boolean(event?.type === 'storm-static' && event.source === enemy.id);
+      if (bossV2Art) {
+        const v2Anim = evaluateBossAnimation(bossV2Art, {
+          frame,
+          pose,
+          progress: artProgress,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+          now,
+          colors: bossV2Art.colors,
+          attacking,
+          charging,
+          hurt,
+          armor: enemy.armor,
+          grounded: bossGrounded,
+          reflecting: bossReflecting,
+        });
+        this.drawBossLocalEffects(v2Anim.effects, v2Metrics, now, v2Anim.partStates);
+      }
+
+      this._bossArmor = enemy.armor;
+      this._bossGrounded = bossGrounded;
+      this._bossReflecting = bossReflecting;
       this.sprite(enemy.kind, spriteX, 146, gone ? deathFrame : frame, pose, hurt ? hurtElement : null, artProgress, alternateArt);
+      this._bossArmor = null;
+      this._bossGrounded = false;
+      this._bossReflecting = false;
 
       if ((enemy.hp > 0 && !dead?.has(enemy.id)) && ward > 0) {
         const isLargeBoss = LARGE_BOSS_KINDS.has(enemy.kind);
         const bossArt = enemy.kind === 'elite' && this.spriteArt.elite?.complete && this.spriteArt.elite.naturalWidth
           ? spriteFrame('elite', pose, frame, artProgress, this.settings.reducedMotion) : null;
-        const wardX = bossArt ? Math.round(spriteX - bossArt.pivot[0] + bossArt.wardCenter[0]) : x;
-        const top = bossArt ? Math.round(146 - bossArt.pivot[1] + bossArt.wardCenter[1] - 30) : isLargeBoss ? 74 : 103;
-        const width = this.enemyWardWidth(enemy);
-        const remaining = wardHit ? event.wardRemaining : ward;
+        const wardX = v2Metrics ? v2Metrics.ward.centerX : bossArt ? Math.round(spriteX - bossArt.pivot[0] + bossArt.wardCenter[0]) : x;
+        const top = v2Metrics ? Math.max(6, v2Metrics.ward.top - 4) : bossArt ? Math.round(146 - bossArt.pivot[1] + bossArt.wardCenter[1] - 30) : isLargeBoss ? 74 : 103;
+        const width = v2Metrics ? v2Metrics.ward.width : this.enemyWardWidth(enemy);
+        const remaining = wardHit ? wardHitRemaining : ward;
         if (remaining) this.drawEnemyWard(wardX, top, width, remaining);
         if (wardHit) {
           if (!this.settings.reducedMotion) this.drawWardImpact(wardX, top, width, wardBroke, wardProgress);
@@ -1307,9 +1513,11 @@ export class Battlefield {
       }
 
       if (!gone && enemy.chill) {
+        const cxBase = v2Metrics ? v2Metrics.ward.centerX : x;
+        const cyBase = v2Metrics ? v2Metrics.ward.bottom - 8 : 138;
         for (let i = 0; i < 3; i++) {
-          const sx = x - 12 + i * 12;
-          const sy = 138 - ((Math.floor(now / 150) + i * 3) % 10);
+          const sx = cxBase - 12 + i * 12;
+          const sy = cyBase - ((Math.floor(now / 150) + i * 3) % 10);
           this.pixelDiamond(sx, sy, 2, C[27], C[9]);
         }
       }
@@ -1380,6 +1588,7 @@ export class Battlefield {
         }
       }
     });
+    drawGrandHealth?.();
 
     if (!this.settings.reducedMotion) {
       for (let i = 0; i < 10; i++) {
@@ -1407,67 +1616,139 @@ export class Battlefield {
         this.barrierLabel(targetX, 94, label, '#d6a2ff');
       }
       if (event.type === 'projectile') {
-        const travel = Math.min(1, fraction / 0.65);
-        const startX = 76;
+        const isPiercingSpear = event.form === 'spear' && Boolean(event.pierceHit);
+        const pierceFromIdx = !isPiercingSpear && event.form === 'spear' && event.spearPhase === 'pierce' && event.pierceFrom
+          ? this.state.enemies.findIndex(enemy => enemy.id === event.pierceFrom)
+          : -1;
+        const startX = pierceFromIdx >= 0 ? (positions[pierceFromIdx] ?? 76) : 76;
         const startY = 120;
-        const target = event.blocked && ['shot', 'chakram', 'spear', 'axe'].includes(event.form)
-          ? x - this.enemyWardWidth(this.state.enemies[eventTargetIndex]) / 2 + 3 : x;
-        const px = Math.round(startX + (target - startX) * travel);
-        const arcLift = event.form === 'shot' ? Math.sin(travel * Math.PI) * 16 : 0;
-        const py = Math.round(startY - arcLift);
         const color = elementColor[event.element] ?? C[30];
         const secondColor = event.elements?.[1] ? (elementColor[event.elements[1]] ?? C[31]) : C[9];
-
         const projScale = vfxScale(event);
-        if (!this.settings.reducedMotion && fraction < 0.4) {
-          this.drawCastSigil(startX, startY, event.element, fraction / 0.4, projScale, secondColor, Boolean(event.elements?.[1]));
-        }
-        if (event.form === 'beam') {
-          this.drawBeamVfx(startX, startY, px, event.element, secondColor, Boolean(event.elements?.[1]), fraction, now, event);
-        } else if (event.form === 'wave') {
-          this.drawWaveVfx(startX, x, color, secondColor, Boolean(event.elements?.[1]), travel, event.element, now, Boolean(event.grand), projScale);
-        } else if (event.form === 'storm') {
-          this.drawStormVfx(x, event.element, fraction, event.elements?.[1], now, Boolean(event.grand), projScale);
-        } else if (event.form === 'chakram') {
-          this.drawChakramVfx(startX, startY, target, px, py, travel, fraction, event, secondColor, now);
-        } else if (event.form === 'spear') {
-          this.drawSpearVfx(startX, startY, target, px, py, travel, fraction, event, secondColor, now);
-        } else if (event.form === 'axe') {
-          this.drawAxeVfx(px, py, color, impact, fraction, event.blocked);
-        } else {
-          this.drawShotVfx(startX, startY, target, px, py, travel, fraction, event, secondColor, now);
-        }
-        if (!this.settings.reducedMotion) {
-          if (event.lightPenalty && !impact) this.drawLightTrail(px, py, fraction);
-          if (event.lightPierce && impact && !event.blocked && event.damage?.amount > 0) {
-            this.drawLightTrail(target, 120, fraction, event.lightPierce);
+
+        if (isPiercingSpear) {
+          const backIdx = this.state.enemies.findIndex(enemy => enemy.id === event.pierceHit.target);
+          const backX = positions[backIdx] ?? Math.min(290, x + 36);
+          const frontTarget = event.blocked && this.state.enemies[eventTargetIndex]
+            ? x - this.enemyWardWidth(this.state.enemies[eventTargetIndex]) / 2 + 3
+            : x;
+          const backTarget = event.pierceHit.blocked && this.state.enemies[backIdx]
+            ? backX - this.enemyWardWidth(this.state.enemies[backIdx]) / 2 + 3
+            : backX;
+          const frontContactFrac = event.frontContactFrac ?? 0.45;
+          const backContactFrac = event.backContactFrac ?? 0.72;
+          const travel = Math.min(1, fraction / Math.max(0.05, backContactFrac));
+          const px = Math.round(startX + (backTarget - startX) * travel);
+          const py = startY;
+          const frontHit = this.settings.reducedMotion || fraction >= frontContactFrac;
+          const backHit = this.settings.reducedMotion || fraction >= backContactFrac;
+          if (!this.settings.reducedMotion && fraction < 0.35) {
+            this.drawCastSigil(startX, startY, event.element, fraction / 0.35, projScale, secondColor, Boolean(event.elements?.[1]));
           }
-          for (const modifier of event.visualModifiers ?? []) {
-            if (travel < 1) this.drawModifierVfx(modifier, event.form === 'storm' ? x : px, event.form === 'storm' ? 110 : py, fraction, false);
-          }
-          if (event.form === 'storm' && event.element === 'storm') this.drawNeutralStormVfx(x, fraction, projScale);
-          if (event.shellBlast && travel < 1) this.drawBlastAccents(px, py, fraction, projScale, event.elements, false, false);
-          for (const element of event.elements ?? [event.element]) {
-            if (travel < 1) {
-              const vx = event.form === 'storm' ? x : px;
-              const vy = event.form === 'storm' ? 110 : py;
-              this.drawHybridVfx(element, vx, vy, fraction, projScale, false);
-              this.drawAscendedVfx(element, vx, vy, fraction, projScale, false);
-              this.drawBasicElementVfx(element, vx, vy, fraction, projScale, false);
-            } else if (!event.blocked && event.damage?.amount > 0) {
-              const hitProgress = (fraction - 0.65) / 0.35;
-              this.drawHybridVfx(element, x, 122, hitProgress, projScale, true);
-              this.drawAscendedVfx(element, x, 122, hitProgress, projScale, true);
-              this.drawBasicElementVfx(element, x, 122, hitProgress, projScale, true);
+          // Single continuous spear flying through front enemy to back enemy
+          this.drawSpearVfx(startX, startY, backTarget, px, py, travel, fraction, event, secondColor, now, backContactFrac, {
+            frontHit,
+            frontTargetX: frontTarget,
+            frontImpactFrac: frontHit ? Math.min(1, (fraction - frontContactFrac) / Math.max(0.12, 1 - frontContactFrac)) : 0,
+            backHit,
+            backEvent: event.pierceHit,
+          });
+          if (!this.settings.reducedMotion) {
+            for (const modifier of event.visualModifiers ?? []) {
+              if (travel < 1) this.drawModifierVfx(modifier, px, py, fraction, false);
+            }
+            for (const element of event.elements ?? [event.element]) {
+              if (travel < 1) {
+                this.drawHybridVfx(element, px, py, fraction, projScale, false);
+                this.drawAscendedVfx(element, px, py, fraction, projScale, false);
+                this.drawBasicElementVfx(element, px, py, fraction, projScale, false);
+              }
+              if (frontHit && !event.blocked && event.damage?.amount > 0) {
+                const hitP = Math.min(1, (fraction - frontContactFrac) / Math.max(0.15, 1 - frontContactFrac));
+                this.drawHybridVfx(element, x, 122, hitP, projScale, true);
+                this.drawAscendedVfx(element, x, 122, hitP, projScale, true);
+                this.drawBasicElementVfx(element, x, 122, hitP, projScale, true);
+              }
+              if (backHit && !event.pierceHit.blocked && event.pierceHit.damage?.amount > 0) {
+                const hitP = Math.min(1, (fraction - backContactFrac) / Math.max(0.12, 1 - backContactFrac));
+                this.drawHybridVfx(element, backX, 122, hitP, projScale, true);
+                this.drawAscendedVfx(element, backX, 122, hitP, projScale, true);
+                this.drawBasicElementVfx(element, backX, 122, hitP, projScale, true);
+              }
             }
           }
-        }
-        if (impact && event.damage) {
-          const sinceHit = this.settings.reducedMotion ? 0 : Math.max(0, (fraction - 0.65) / 0.35);
-          if (event.form === 'wave' && event.damage.amount > 0 && !this.settings.reducedMotion) {
-            this.drawHitBurstVfx(x, 126, color, sinceHit, event.element, now, projScale);
+          if (frontHit && event.damage) {
+            const sinceFront = this.settings.reducedMotion ? 0 : Math.min(1, (fraction - frontContactFrac) / Math.max(0.15, 1 - frontContactFrac));
+            this.drawDamagePopup(x, sinceFront, event.damage, color);
           }
-          this.drawDamagePopup(x, sinceHit, event.damage, color);
+          if (backHit && event.pierceHit.damage) {
+            const sinceBack = this.settings.reducedMotion ? 0 : Math.min(1, (fraction - backContactFrac) / Math.max(0.12, 1 - backContactFrac));
+            this.drawDamagePopup(backX, sinceBack, event.pierceHit.damage, color, 14);
+          }
+        } else {
+          const targetEnemy = this.state.enemies[eventTargetIndex];
+          const targetMetrics = this.getEnemyVisualMetrics(targetEnemy, x, 146, 0);
+          const wardCenter = targetMetrics ? targetMetrics.ward.centerX : x;
+          const wardW = targetMetrics ? targetMetrics.ward.width : this.enemyWardWidth(targetEnemy);
+          const impactX = targetMetrics ? targetMetrics.chest.x : x;
+          const impactY = targetMetrics ? targetMetrics.chest.y : startY;
+          const travel = Math.min(1, fraction / 0.65);
+          const target = event.blocked && ['shot', 'chakram', 'spear', 'axe'].includes(event.form)
+            ? wardCenter - wardW / 2 + 3 : impactX;
+          const px = Math.round(startX + (target - startX) * travel);
+          const arcLift = event.form === 'shot' ? Math.sin(travel * Math.PI) * 16 : 0;
+          const py = Math.round(startY + (impactY - startY) * travel - arcLift);
+
+          if (!this.settings.reducedMotion && fraction < 0.4 && pierceFromIdx < 0) {
+            this.drawCastSigil(startX, startY, event.element, fraction / 0.4, projScale, secondColor, Boolean(event.elements?.[1]));
+          }
+          if (event.form === 'beam') {
+            this.drawBeamVfx(startX, startY, px, event.element, secondColor, Boolean(event.elements?.[1]), fraction, now, event);
+          } else if (event.form === 'wave') {
+            this.drawWaveVfx(startX, x, color, secondColor, Boolean(event.elements?.[1]), travel, event.element, now, Boolean(event.grand), projScale);
+          } else if (event.form === 'storm') {
+            this.drawStormVfx(x, event.element, fraction, event.elements?.[1], now, Boolean(event.grand), projScale);
+          } else if (event.form === 'chakram') {
+            this.drawChakramVfx(startX, startY, target, px, py, travel, fraction, event, secondColor, now);
+          } else if (event.form === 'spear') {
+            this.drawSpearVfx(startX, startY, target, px, py, travel, fraction, event, secondColor, now);
+          } else if (event.form === 'axe') {
+            this.drawAxeVfx(px, py, color, impact, fraction, event.blocked);
+          } else {
+            this.drawShotVfx(startX, startY, target, px, py, travel, fraction, event, secondColor, now);
+          }
+          if (!this.settings.reducedMotion) {
+            if (event.lightPenalty && !impact) this.drawLightTrail(px, py, fraction);
+            if (event.lightPierce && impact && !event.blocked && event.damage?.amount > 0) {
+              this.drawLightTrail(target, 120, fraction, event.lightPierce);
+            }
+            for (const modifier of event.visualModifiers ?? []) {
+              if (travel < 1) this.drawModifierVfx(modifier, event.form === 'storm' ? x : px, event.form === 'storm' ? 110 : py, fraction, false);
+            }
+            if (event.form === 'storm' && event.element === 'storm') this.drawNeutralStormVfx(x, fraction, projScale);
+            if (event.shellBlast && travel < 1) this.drawBlastAccents(px, py, fraction, projScale, event.elements, false, false);
+            for (const element of event.elements ?? [event.element]) {
+              if (travel < 1) {
+                const vx = event.form === 'storm' ? x : px;
+                const vy = event.form === 'storm' ? 110 : py;
+                this.drawHybridVfx(element, vx, vy, fraction, projScale, false);
+                this.drawAscendedVfx(element, vx, vy, fraction, projScale, false);
+                this.drawBasicElementVfx(element, vx, vy, fraction, projScale, false);
+              } else if (!event.blocked && event.damage?.amount > 0) {
+                const hitProgress = (fraction - 0.65) / 0.35;
+                this.drawHybridVfx(element, x, 122, hitProgress, projScale, true);
+                this.drawAscendedVfx(element, x, 122, hitProgress, projScale, true);
+                this.drawBasicElementVfx(element, x, 122, hitProgress, projScale, true);
+              }
+            }
+          }
+          if (impact && event.damage) {
+            const sinceHit = this.settings.reducedMotion ? 0 : Math.max(0, (fraction - 0.65) / 0.35);
+            if (event.form === 'wave' && event.damage.amount > 0 && !this.settings.reducedMotion) {
+              this.drawHitBurstVfx(x, 126, color, sinceHit, event.element, now, projScale);
+            }
+            this.drawDamagePopup(x, sinceHit, event.damage, color);
+          }
         }
       }
 
@@ -1570,7 +1851,10 @@ export class Battlefield {
       }
 
       if (event.type === 'attack') {
-        this.drawEnemyAttackVfx(x, 51, fraction, impact, event, now);
+        const hitsSummon = event.target === 'summon';
+        const attackTargetX = hitsSummon ? summonAnchor.x : 51;
+        const ultPopupX = hitsSummon && !(event.amount > 0) ? summonAnchor.x : 51;
+        this.drawEnemyAttackVfx(x, attackTargetX, fraction, impact, event, now);
         if (impact) {
           if (event.ultimate && (!this.hpNumbersInHud || !event.amount)) {
             const ultTitle = event.sourceKind === 'eternity_reborn'
@@ -1581,16 +1865,20 @@ export class Battlefield {
                   ? '⚡ อสุนีพิพากษา!'
                   : event.sourceKind === 'volcano_colossus'
                     ? '🌋 ภูเขาไฟพิโรธ!'
-                    : event.sourceKind === 'abyssal_kraken'
+                    : event.sourceKind === 'abyssal_cthulhu'
                       ? '🌊 มหาคลื่นสึนามิบาดาล!'
                       : event.sourceKind === 'nether_dread_lord'
                         ? '💀 เปลวเพลิงนรกานต์พิพากษา!'
                         : '💥 พิพากษาเพลิง!';
-            const ultText = event.amount > 0 ? `${ultTitle} −${event.amount} HP` : `${ultTitle} ติดโล่!`;
+            const ultText = event.amount > 0
+              ? `${ultTitle} −${event.amount} HP`
+              : hitsSummon
+                ? `${ultTitle} แนวหน้ารับไว้!`
+                : `${ultTitle} ติดโล่!`;
             const isEternityUlt = event.sourceKind === 'eternity_overlord' || event.sourceKind === 'eternity_reborn';
-            const ultFg = isEternityUlt ? C[31] : event.sourceKind === 'abyssal_kraken' ? C[27] : event.sourceKind === 'tempest_archon' ? C[31] : event.sourceKind === 'nether_dread_lord' ? C[23] : C[30];
-            const ultEdge = isEternityUlt ? C[22] : event.sourceKind === 'abyssal_kraken' ? C[25] : event.sourceKind === 'tempest_archon' ? C[27] : event.sourceKind === 'nether_dread_lord' ? C[18] : C[19];
-            this.drawFloatingPopup(51, 86 - Math.round((fraction - 0.5) * 18), ultText, ultFg, ultEdge);
+            const ultFg = isEternityUlt ? C[31] : event.sourceKind === 'abyssal_cthulhu' ? C[27] : event.sourceKind === 'tempest_archon' ? C[31] : event.sourceKind === 'nether_dread_lord' ? C[23] : C[30];
+            const ultEdge = isEternityUlt ? C[22] : event.sourceKind === 'abyssal_cthulhu' ? C[25] : event.sourceKind === 'tempest_archon' ? C[27] : event.sourceKind === 'nether_dread_lord' ? C[18] : C[19];
+            this.drawFloatingPopup(ultPopupX, 86 - Math.round((fraction - 0.5) * 18), ultText, ultFg, ultEdge);
           } else if (event.amount > 0 && !this.hpNumbersInHud) {
             this.drawFloatingPopup(51, 94 - Math.round((fraction - 0.5) * 16), `−${event.amount} HP`, C[9], C[19]);
           }
@@ -1763,7 +2051,7 @@ export class Battlefield {
       if (event.type === 'charge') {
         if (event.specialBoss) {
           const isStorm = event.sourceKind === 'tempest_archon' || event.sourceKind === 'thunder_drake_emperor';
-          const isWater = event.sourceKind === 'abyssal_kraken';
+          const isWater = event.sourceKind === 'abyssal_cthulhu';
           const isNether = event.sourceKind === 'nether_dread_lord';
           const isEternity = event.sourceKind === 'eternity_overlord' || event.sourceKind === 'eternity_reborn';
           const chargeTitle = event.sourceKind === 'eternity_reborn'
@@ -1806,29 +2094,34 @@ export class Battlefield {
       if (event.type === 'summon' || event.type === 'summon_invoke') {
         const elem = event.element || 'fire';
         const pal = ELEMENT_IMPACT[elem] || ELEMENT_IMPACT.fire;
+        const fusion = fusionSummonPalette(elem, this.summonVisuals);
+        const aura = fusion?.aura ?? pal.primary;
+        const core = fusion?.core ?? pal.core;
         const frac = this.settings.reducedMotion ? 1 : progress;
         const circleR = Math.round(14 + frac * 8);
-        this.pixelEllipse(88, 147, circleR, Math.round(circleR * 0.35), pal.primary, false);
-        this.pixelEllipse(88, 147, Math.max(4, circleR - 4), Math.max(2, Math.round((circleR - 4) * 0.35)), pal.core, false);
+        const sx = summonAnchor.x;
+        const sb = summonAnchor.baseline;
+        this.pixelEllipse(sx, sb, circleR, Math.round(circleR * 0.35), aura, false);
+        this.pixelEllipse(sx, sb, Math.max(4, circleR - 4), Math.max(2, Math.round((circleR - 4) * 0.35)), core, false);
         if (!this.settings.reducedMotion) {
           const pillarH = Math.round(Math.sin(frac * Math.PI) * 36);
           g.save();
           g.globalAlpha = 0.45 * Math.sin(frac * Math.PI);
-          g.fillStyle = pal.primary;
-          g.fillRect(88 - 12, 147 - pillarH, 24, pillarH);
-          g.fillStyle = pal.core;
-          g.fillRect(88 - 6, 147 - pillarH, 12, pillarH);
+          g.fillStyle = aura;
+          g.fillRect(sx - 12, sb - pillarH, 24, pillarH);
+          g.fillStyle = core;
+          g.fillRect(sx - 6, sb - pillarH, 12, pillarH);
           g.restore();
           for (let i = 0; i < 6; i++) {
             const ang = frac * 4 + i * 1.05;
             const dist = 10 + i * 2;
-            const px = Math.round(88 + Math.cos(ang) * dist);
-            const py = Math.round(140 - frac * 20 + Math.sin(ang) * 4);
-            this.pixelDiamond(px, py, 2, pal.core, pal.primary);
+            const px = Math.round(sx + Math.cos(ang) * dist);
+            const py = Math.round(sb - 7 - frac * 20 + Math.sin(ang) * 4);
+            this.pixelDiamond(px, py, 2, fusion?.spark ?? pal.core, aura);
           }
         }
         if (event.name || event.creature) {
-          this.drawFloatingPopup(88, 108 - Math.round(frac * 16), `✨ อัญเชิญ ${event.name || event.creature}`, pal.core, pal.primary);
+          this.drawFloatingPopup(sx, sb - 39 - Math.round(frac * 16), `✨ อัญเชิญ ${event.name || event.creature}`, pal.core, pal.primary);
         }
       }
 
@@ -1868,7 +2161,8 @@ export class Battlefield {
         const targetX = positions[targetIndex] ?? 180;
         const frac = this.settings.reducedMotion ? 1 : progress;
         if (!this.settings.reducedMotion) {
-          this.pixelDiamond(88, 135, 3, pal.core, pal.primary);
+          const fusion = fusionSummonPalette(elem, this.summonVisuals);
+          this.pixelDiamond(summonAnchor.x, summonAnchor.baseline - 12, 3, fusion?.core ?? pal.core, fusion?.rim ?? pal.primary);
           if (frac > 0.2) {
             this.drawHitBurstVfx(targetX, 124, pal.primary, frac, elem, now, 1);
           }
@@ -1881,43 +2175,44 @@ export class Battlefield {
       }
 
       if (event.type === 'summon_rebirth') {
-        this.drawFloatingPopup(88, 94, 'ฟีนิกซ์เกิดใหม่', C[31], ELEMENT_IMPACT.fire.primary);
+        this.drawFloatingPopup(summonAnchor.x, summonAnchor.baseline - 53, 'ฟีนิกซ์เกิดใหม่', C[31], ELEMENT_IMPACT.fire.primary);
       }
 
       if (event.type === 'summon_break') {
         const elem = event.element || 'earth';
         const pal = ELEMENT_IMPACT[elem] || ELEMENT_IMPACT.earth;
+        const fusion = fusionSummonPalette(elem, this.summonVisuals);
         const frac = this.settings.reducedMotion ? 1 : progress;
         if (!this.settings.reducedMotion) {
           for (let i = 0; i < 8; i++) {
             const ang = (i / 8) * Math.PI * 2;
             const dist = Math.round(frac * 24);
-            const px = Math.round(88 + Math.cos(ang) * dist);
-            const py = Math.round(135 + Math.sin(ang) * (dist * 0.6));
-            this.pixelDiamond(px, py, 2, pal.core, pal.primary);
+            const px = Math.round(summonAnchor.x + Math.cos(ang) * dist);
+            const py = Math.round(summonAnchor.baseline - 12 + Math.sin(ang) * (dist * 0.6));
+            this.pixelDiamond(px, py, 2, fusion?.spark ?? pal.core, fusion?.rim ?? pal.primary);
           }
         }
-        this.drawFloatingPopup(88, 110 - Math.round(frac * 16), 'แตกสลาย!', pal.primary, pal.secondary);
+        this.drawFloatingPopup(summonAnchor.x, summonAnchor.baseline - 37 - Math.round(frac * 16), 'แตกสลาย!', pal.primary, pal.secondary);
       }
 
       if (event.type === 'summon_hit') {
         const frac = this.settings.reducedMotion ? 1 : progress;
         if (!this.settings.reducedMotion) {
-          this.drawHitBurstVfx(88, 132, C[18], frac, 'fire', now, 0.8);
+          this.drawHitBurstVfx(summonAnchor.x, summonAnchor.baseline - 15, C[18], frac, 'fire', now, 0.8);
         }
         if (event.damage > 0) {
-          this.drawFloatingPopup(88, 104 - Math.round(frac * 14), `−${event.damage}`, C[9], C[18]);
+          this.drawFloatingPopup(summonAnchor.x, summonAnchor.baseline - 43 - Math.round(frac * 14), `−${event.damage}`, C[9], C[18]);
         }
       }
 
       if (event.type === 'dodge' && event.target === 'summon') {
         const frac = this.settings.reducedMotion ? 1 : progress;
-        this.drawFloatingPopup(88, 102 - Math.round(frac * 14), '💨 หลบพ้น!', C[9], C[27]);
+        this.drawFloatingPopup(summonAnchor.x, summonAnchor.baseline - 45 - Math.round(frac * 14), '💨 หลบพ้น!', C[9], C[27]);
       }
 
       if (event.type === 'ward_absorb' && event.target === 'summon') {
         const frac = this.settings.reducedMotion ? 1 : progress;
-        this.drawFloatingPopup(88, 102 - Math.round(frac * 14), '🛡️ ม่านรับไว้!', '#f9eeff', '#b275f0');
+        this.drawFloatingPopup(summonAnchor.x, summonAnchor.baseline - 45 - Math.round(frac * 14), '🛡️ ม่านรับไว้!', '#f9eeff', '#b275f0');
       }
 
       if (event.type === 'summon_depart') {
@@ -2611,7 +2906,7 @@ export class Battlefield {
     }
   }
 
-  drawSpearVfx(startX, startY, targetX, px, py, travel, fraction, event, secondColor, now) {
+  drawSpearVfx(startX, startY, targetX, px, py, travel, fraction, event, secondColor, now, contactFrac = 0.65, pierceOpts = null) {
     const g = this.ctx;
     const elem = event.element ?? 'fire';
     const pal = ELEMENT_IMPACT[elem] ?? ELEMENT_IMPACT.fire;
@@ -2620,6 +2915,20 @@ export class Battlefield {
     const shaftLen = Math.round(24 * scale);
     const tipLen = Math.round(9 * scale);
     const thick = Math.max(2, Math.round(2.5 * Math.min(2.2, scale)));
+    if (pierceOpts?.frontHit && !event.blocked && event.damage?.amount > 0 && !this.settings.reducedMotion) {
+      const fImp = pierceOpts.frontImpactFrac ?? 0;
+      const fx = pierceOpts.frontTargetX;
+      const thrustLen = Math.round((14 + fImp * 12) * scale);
+      g.save();
+      g.globalAlpha = Math.max(0, 1 - fImp);
+      g.fillStyle = pal.primary;
+      g.fillRect(fx - Math.round(thrustLen * 0.4), 120, thrustLen, Math.max(2, thick));
+      g.fillStyle = pal.core;
+      g.fillRect(fx - Math.round(thrustLen * 0.3), 121, Math.round(thrustLen * 0.8), 1);
+      g.restore();
+      this.drawElementalImpactFlash(fx, 122, elem, fImp, scale);
+      this.drawHitBurstVfx(fx, 122, pal.primary, fImp, elem, now, scale);
+    }
     if (travel < 1) {
       // Speed streaks trailing behind the spear
       for (let t = 1; t <= 4; t++) {
@@ -2649,18 +2958,21 @@ export class Battlefield {
         g.fillRect(px - shaftLen - 2, py - thick - 1, shaftLen + tipLen + 4, 1);
         g.fillRect(px - shaftLen - 2, py + thick + 1, shaftLen + tipLen + 4, 1);
       }
-    } else if (!event.blocked && event.damage?.amount > 0 && !this.settings.reducedMotion) {
-      const imp = Math.max(0, (fraction - 0.65) / 0.35);
-      const thrustLen = Math.round((16 + imp * 14) * scale);
-      g.save();
-      g.globalAlpha = Math.max(0, 1 - imp);
-      g.fillStyle = pal.primary;
-      g.fillRect(targetX - Math.round(thrustLen * 0.4), 120, thrustLen, Math.max(2, thick));
-      g.fillStyle = pal.core;
-      g.fillRect(targetX - Math.round(thrustLen * 0.3), 121, Math.round(thrustLen * 0.8), 1);
-      g.restore();
-      this.drawElementalImpactFlash(targetX, 122, elem, imp, scale);
-      this.drawHitBurstVfx(targetX, 122, pal.primary, imp, elem, now, scale);
+    } else {
+      const endEvent = pierceOpts?.backEvent ?? event;
+      if (!endEvent.blocked && endEvent.damage?.amount > 0 && !this.settings.reducedMotion) {
+        const imp = Math.max(0, (fraction - contactFrac) / Math.max(0.1, 1 - contactFrac));
+        const thrustLen = Math.round((16 + imp * 14) * scale);
+        g.save();
+        g.globalAlpha = Math.max(0, 1 - imp);
+        g.fillStyle = pal.primary;
+        g.fillRect(targetX - Math.round(thrustLen * 0.4), 120, thrustLen, Math.max(2, thick));
+        g.fillStyle = pal.core;
+        g.fillRect(targetX - Math.round(thrustLen * 0.3), 121, Math.round(thrustLen * 0.8), 1);
+        g.restore();
+        this.drawElementalImpactFlash(targetX, 122, elem, imp, scale);
+        this.drawHitBurstVfx(targetX, 122, pal.primary, imp, elem, now, scale);
+      }
     }
   }
 
@@ -3203,15 +3515,19 @@ export class Battlefield {
     const isSpecial = Boolean(event.specialBoss);
     const isUltimate = Boolean(event.ultimate);
     const isStormBoss = event.sourceKind === 'tempest_archon' || event.sourceKind === 'thunder_drake_emperor';
-    const isWaterBoss = event.sourceKind === 'abyssal_kraken';
+    const isWaterBoss = event.sourceKind === 'abyssal_cthulhu';
+    const isArcaneBoss = event.sourceKind === 'crown_archivist';
     const isNetherBoss = event.sourceKind === 'nether_dread_lord';
     const isEternityBoss = event.sourceKind === 'eternity_overlord' || event.sourceKind === 'eternity_reborn';
-    const isInkTentacle = event.sourceKind === 'kraken_ink_tentacle';
+    const isInkTentacle = event.sourceKind === 'cthulhu_ink_tentacle';
 
+    const hitsSummon = event.target === 'summon';
+    const playerShieldHit = (event.playerAbsorbed ?? (hitsSummon ? 0 : (event.absorbed ?? 0))) > 0;
     if (isUltimate) {
       if (fraction < 0.62) {
         const t = fraction / 0.62;
-        const projX = Math.round(enemyX - 18 - (enemyX - 18 - (playerX + 10)) * t);
+        const destX = hitsSummon ? playerX + 4 : playerX + 10;
+        const projX = Math.round(enemyX - 18 - (enemyX - 18 - destX) * t);
         if (isEternityBoss) {
           // Golden-magenta cosmic supernova lance hurtling across space-time
           for (let trail = 1; trail <= 7; trail++) {
@@ -3266,7 +3582,7 @@ export class Battlefield {
         }
       } else {
         const imp = Math.min(1, (fraction - 0.62) / 0.38);
-        const hitX = event.absorbed > 0 ? playerX + 16 : playerX + 4;
+        const hitX = hitsSummon ? playerX : (playerShieldHit ? playerX + 16 : playerX + 4);
         if (isEternityBoss) {
           // Celestial Golden-Violet Supernova Pillar & Astral Starlight Burst
           const colH = Math.round(Math.sin(imp * Math.PI) * 84);
@@ -3367,7 +3683,8 @@ export class Battlefield {
 
     if (fraction < 0.62) {
       const t = fraction / 0.62;
-      const waveX = Math.round(enemyX - 12 - (enemyX - 12 - (playerX + 16)) * t);
+      const destX = hitsSummon ? playerX + 6 : playerX + 16;
+      const waveX = Math.round(enemyX - 12 - (enemyX - 12 - destX) * t);
       if (isSpecial) {
         if (isEternityBoss) {
           for (let dy = -12; dy <= 12; dy++) {
@@ -3398,6 +3715,14 @@ export class Battlefield {
             g.fillRect(waveX + curve, 122 + dy, 6, 1);
           }
         }
+      } else if (isArcaneBoss) {
+        const originX = enemyX - 28;
+        const originY = 62;
+        const arcX = Math.round(originX + (destX - originX) * t);
+        const arcY = Math.round(originY + (122 - originY) * t);
+        this.pixelBolt(originX, originY, arcX, arcY, now * 0.06, '#52ebde', '#dcfffb');
+        this.pixelCircle(arcX, arcY, 5, '#5a2e7a', true);
+        this.pixelDiamond(arcX, arcY, 3, '#52ebde', '#dcfffb');
       } else if (isInkTentacle && event.manaDrain > 0) {
         this.pixelCircle(waveX, 122, 6, C[0], true);
         this.pixelCircle(waveX, 122, 4, C[21], true);
@@ -3411,10 +3736,10 @@ export class Battlefield {
       }
     } else {
       const imp = Math.min(1, (fraction - 0.62) / 0.38);
-      const hitX = event.absorbed > 0 ? playerX + 17 : playerX + 4;
+      const hitX = hitsSummon ? playerX : (playerShieldHit ? playerX + 17 : playerX + 4);
       const slashColor = isSpecial
         ? (isEternityBoss ? C[31] : isNetherBoss ? C[18] : isWaterBoss ? C[27] : isStormBoss ? C[31] : C[16])
-        : (isInkTentacle && event.manaDrain > 0 ? C[22] : event.absorbed > 0 ? C[27] : C[19]);
+        : (isInkTentacle && event.manaDrain > 0 ? C[22] : playerShieldHit ? C[27] : C[19]);
       for (let s = -10; s <= 10; s++) {
         g.fillStyle = slashColor;
         g.fillRect(hitX + s - 1, 122 + s - 1, 3, 3);

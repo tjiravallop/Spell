@@ -1,0 +1,502 @@
+[
+  {
+    "floor": 10,
+    "mode": "normal",
+    "file": "gameplay\\floor-10-ember-overlord.png",
+    "info": {
+      "room": 24,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "ember_overlord",
+          "slot": 0,
+          "hp": 135,
+          "maxHp": 135
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "จ้าวอัคคีบรรพกาล"
+      ]
+    }
+  },
+  {
+    "floor": 20,
+    "mode": "normal",
+    "file": "gameplay\\floor-20-tempest-archon.png",
+    "info": {
+      "room": 49,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "tempest_archon",
+          "slot": 0,
+          "hp": 255,
+          "maxHp": 255
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "จ้าวพายุอสุนีบาต"
+      ]
+    }
+  },
+  {
+    "floor": 30,
+    "mode": "normal",
+    "file": "gameplay\\floor-30-crown-archivist.png",
+    "info": {
+      "room": 74,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "crown_archivist",
+          "slot": 0,
+          "hp": 235,
+          "maxHp": 235
+        },
+        {
+          "id": "enemy-1",
+          "kind": "rune_ram",
+          "slot": 1,
+          "hp": 52,
+          "maxHp": 52
+        },
+        {
+          "id": "enemy-2",
+          "kind": "ward_scribe",
+          "slot": 2,
+          "hp": 32,
+          "maxHp": 32
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "เจ้าแห่งหอจารึก",
+        "แพะผาศิลา",
+        "อาลักษณ์ทอม่าน"
+      ]
+    }
+  },
+  {
+    "floor": 40,
+    "mode": "normal",
+    "file": "gameplay\\floor-40-mirror-regent.png",
+    "info": {
+      "room": 99,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "mirror_regent",
+          "slot": 0,
+          "hp": 325,
+          "maxHp": 325
+        },
+        {
+          "id": "enemy-1",
+          "kind": "ward_scribe",
+          "slot": 2,
+          "hp": 32,
+          "maxHp": 32
+        },
+        {
+          "id": "enemy-2",
+          "kind": "thread_archer",
+          "slot": 4,
+          "hp": 48,
+          "maxHp": 48
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "ราชันกระจกผลึกเหมันต์",
+        "อาลักษณ์ทอม่าน",
+        "พรานศรด้ายวายุ"
+      ]
+    }
+  },
+  {
+    "floor": 50,
+    "mode": "normal",
+    "file": "gameplay\\floor-50-loom-sovereign.png",
+    "info": {
+      "room": 124,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "loom_sovereign",
+          "slot": 0,
+          "hp": 530,
+          "maxHp": 530
+        },
+        {
+          "id": "enemy-1",
+          "kind": "rift_runner",
+          "slot": 1,
+          "hp": 60,
+          "maxHp": 60
+        },
+        {
+          "id": "enemy-2",
+          "kind": "ward_scribe",
+          "slot": 3,
+          "hp": 32,
+          "maxHp": 32
+        },
+        {
+          "id": "enemy-3",
+          "kind": "thread_archer",
+          "slot": 4,
+          "hp": 48,
+          "maxHp": 48
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "ราชันกี่ทอโลก",
+        "วิหคสลับรอยแยก",
+        "อาลักษณ์ทอม่าน",
+        "พรานศรด้ายวายุ"
+      ]
+    }
+  },
+  {
+    "floor": 60,
+    "mode": "normal",
+    "file": "gameplay\\floor-60-volcano-colossus.png",
+    "info": {
+      "room": 149,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "volcano_colossus",
+          "slot": 0,
+          "hp": 1500,
+          "maxHp": 1500
+        },
+        {
+          "id": "enemy-1",
+          "kind": "magma_tortoise",
+          "slot": 1,
+          "hp": 340,
+          "maxHp": 340
+        },
+        {
+          "id": "enemy-2",
+          "kind": "cinder_drake",
+          "slot": 3,
+          "hp": 280,
+          "maxHp": 280
+        },
+        {
+          "id": "enemy-3",
+          "kind": "magma_tortoise",
+          "slot": 4,
+          "hp": 340,
+          "maxHp": 340
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "ยักษ์อัคนีภูเขาไฟ",
+        "เต่าศิลาลาวา",
+        "มังกรสะเก็ดไฟ",
+        "เต่าศิลาลาวา"
+      ]
+    }
+  },
+  {
+    "floor": 70,
+    "mode": "normal",
+    "file": "gameplay\\floor-70-thunder-drake-emperor.png",
+    "info": {
+      "room": 174,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "thunder_drake_emperor",
+          "slot": 0,
+          "hp": 2800,
+          "maxHp": 2800
+        },
+        {
+          "id": "enemy-1",
+          "kind": "sand_stalker",
+          "slot": 1,
+          "hp": 500,
+          "maxHp": 500
+        },
+        {
+          "id": "enemy-2",
+          "kind": "spark_wraith",
+          "slot": 3,
+          "hp": 440,
+          "maxHp": 440
+        },
+        {
+          "id": "enemy-3",
+          "kind": "sand_stalker",
+          "slot": 4,
+          "hp": 500,
+          "maxHp": 500
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "จักรพรรดิมังกรอสุนี",
+        "แมงป่องสายฟ้าทราย",
+        "ภูตอัสนีไร้ร่าง",
+        "แมงป่องสายฟ้าทราย"
+      ]
+    }
+  },
+  {
+    "floor": 80,
+    "mode": "normal",
+    "file": "phases\\floor-80-abyssal-kraken-phase1-tentacles.png",
+    "info": {
+      "room": 199,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "kraken_ward_tentacle",
+          "slot": 0,
+          "hp": 1000,
+          "maxHp": 1000
+        },
+        {
+          "id": "enemy-1",
+          "kind": "kraken_heal_tentacle",
+          "slot": 1,
+          "hp": 950,
+          "maxHp": 950
+        },
+        {
+          "id": "enemy-2",
+          "kind": "kraken_ink_tentacle",
+          "slot": 3,
+          "hp": 1050,
+          "maxHp": 1050
+        },
+        {
+          "id": "enemy-3",
+          "kind": "kraken_crush_tentacle",
+          "slot": 4,
+          "hp": 1250,
+          "maxHp": 1250
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "หนวดม่านวารี",
+        "หนวดฟื้นสมุทร",
+        "หนวดหมึกดำบาดาล",
+        "หนวดยักษ์บดขยี้"
+      ]
+    }
+  },
+  {
+    "floor": 80,
+    "mode": "kraken_p2",
+    "file": "gameplay\\floor-80-abyssal-kraken.png",
+    "info": {
+      "room": 199,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "abyssal_kraken",
+          "slot": 2,
+          "hp": 4600,
+          "maxHp": 4600
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "มหาคราเค่นแห่งห้วงบาดาล"
+      ]
+    }
+  },
+  {
+    "floor": 90,
+    "mode": "normal",
+    "file": "gameplay\\floor-90-nether-dread-lord.png",
+    "info": {
+      "room": 224,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "nether_dread_lord",
+          "slot": 0,
+          "hp": 7000,
+          "maxHp": 7000
+        },
+        {
+          "id": "enemy-1",
+          "kind": "nether_leech_pillar",
+          "slot": 1,
+          "hp": 1100,
+          "maxHp": 1100
+        },
+        {
+          "id": "enemy-2",
+          "kind": "nether_curse_pillar",
+          "slot": 3,
+          "hp": 1050,
+          "maxHp": 1050
+        },
+        {
+          "id": "enemy-3",
+          "kind": "nether_doom_pillar",
+          "slot": 4,
+          "hp": 1250,
+          "maxHp": 1250
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "จอมอสูรนรกานต์",
+        "เสาดูดวิญญาณ",
+        "เสาคำสาปต้องห้าม",
+        "เสาพิพากษานรกานต์"
+      ]
+    }
+  },
+  {
+    "floor": 100,
+    "mode": "normal",
+    "file": "gameplay\\floor-100-eternity-overlord.png",
+    "info": {
+      "room": 249,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "eternity_overlord",
+          "slot": 0,
+          "hp": 7000,
+          "maxHp": 7000
+        },
+        {
+          "id": "enemy-1",
+          "kind": "zenith_templar",
+          "slot": 1,
+          "hp": 1380,
+          "maxHp": 1380
+        },
+        {
+          "id": "enemy-2",
+          "kind": "chronos_keeper",
+          "slot": 3,
+          "hp": 1250,
+          "maxHp": 1250
+        },
+        {
+          "id": "enemy-3",
+          "kind": "chaos_weaver",
+          "slot": 4,
+          "hp": 1080,
+          "maxHp": 1080
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "มหาเทพราชันอนันตกาล",
+        "อัศวินดวงดาวนิรันดร์",
+        "ผู้คุมเวลาดึกดำบรรพ์",
+        "ผู้ถักทอความโกลาหล"
+      ]
+    }
+  },
+  {
+    "floor": 100,
+    "mode": "eternity_p3",
+    "file": "phases\\floor-100-eternity-reborn-phase3.png",
+    "info": {
+      "room": 249,
+      "enemies": [
+        {
+          "id": "enemy-0",
+          "kind": "eternity_reborn",
+          "slot": 2,
+          "hp": 4500,
+          "maxHp": 4500
+        }
+      ]
+    },
+    "metrics": {
+      "canvasWidth": 320,
+      "canvasHeight": 180,
+      "rectWidth": 598,
+      "rectHeight": 336.38,
+      "heading": "",
+      "enemyNames": [
+        "มหาเทพอนันตกาล · ร่างจุตินิรันดร์"
+      ]
+    }
+  }
+]
