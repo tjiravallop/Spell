@@ -1,4 +1,8 @@
 import { getOpaqueBounds } from './summon-sizes.js';
+import { NETHER_DREAD_LORD_SIZE } from './boss-art/nether-dread-lord-v2.js';
+import { NETHER_LEECH_PILLAR_SIZE } from './boss-art/nether-leech-pillar-v2.js';
+import { NETHER_CURSE_PILLAR_SIZE } from './boss-art/nether-curse-pillar-v2.js';
+import { NETHER_DOOM_PILLAR_SIZE } from './boss-art/nether-doom-pillar-v2.js';
 
 export { getOpaqueBounds };
 
@@ -137,6 +141,84 @@ export const BOSS_SIZE_V2 = Object.freeze({
       bodyCenter: { x: 76, y: 64 },
     },
   },
+  cthulhu_ward_tentacle: {
+    defaultTier: 'large',
+    defaultHeight: 48,
+    tiers: Object.freeze({ standard: 40, large: 48, extended: 56 }),
+    offset: { x: 0, baseline: 0 },
+    layer: 'foreground',
+    bodyBox: { minX: 6, maxX: 56, minY: 3, maxY: 61 },
+    anchors: {
+      head: { x: 22, y: 15 },
+      chest: { x: 42, y: 34 },
+      weapon: { x: 20, y: 16 },
+      bodyCenter: { x: 34, y: 32 },
+    },
+  },
+  cthulhu_heal_tentacle: {
+    defaultTier: 'large',
+    defaultHeight: 48,
+    tiers: Object.freeze({ standard: 40, large: 48, extended: 56 }),
+    offset: { x: 0, baseline: 0 },
+    layer: 'foreground',
+    bodyBox: { minX: 6, maxX: 55, minY: 3, maxY: 61 },
+    anchors: {
+      head: { x: 20, y: 18 },
+      chest: { x: 40, y: 34 },
+      weapon: { x: 18, y: 20 },
+      bodyCenter: { x: 33, y: 32 },
+    },
+  },
+  cthulhu_ink_tentacle: {
+    defaultTier: 'large',
+    defaultHeight: 52,
+    tiers: Object.freeze({ standard: 44, large: 52, extended: 60 }),
+    offset: { x: 0, baseline: 0 },
+    layer: 'foreground',
+    bodyBox: { minX: 6, maxX: 46, minY: 3, maxY: 65 },
+    anchors: {
+      head: { x: 16, y: 14 },
+      chest: { x: 32, y: 36 },
+      weapon: { x: 14, y: 16 },
+      bodyCenter: { x: 28, y: 34 },
+    },
+  },
+  cthulhu_crush_tentacle: {
+    defaultTier: 'large',
+    defaultHeight: 52,
+    tiers: Object.freeze({ standard: 44, large: 52, extended: 64 }),
+    offset: { x: 0, baseline: 0 },
+    layer: 'foreground',
+    bodyBox: { minX: 6, maxX: 63, minY: 3, maxY: 65 },
+    anchors: {
+      head: { x: 20, y: 20 },
+      chest: { x: 44, y: 36 },
+      weapon: { x: 16, y: 24 },
+      bodyCenter: { x: 36, y: 34 },
+    },
+  },
+  abyssal_cthulhu: {
+    defaultTier: 'large',
+    defaultHeight: 120,
+    tiers: Object.freeze({ standard: 112, large: 120, grand: 128 }),
+    offset: { x: 0, baseline: 0 },
+    layer: 'foreground',
+    // Body-aware Ward geometry around central creature (excludes wide wing span & outer appendage tips)
+    bodyBox: { minX: 58, maxX: 144, minY: 14, maxY: 131 },
+    anchors: {
+      head: { x: 90, y: 32 },
+      eye: { x: 90, y: 34 },
+      chest: { x: 92, y: 62 },
+      weapon: { x: 52, y: 84 },
+      bodyCenter: { x: 94, y: 72 },
+      frontFoot: { x: 66, y: 126 },
+      rearFoot: { x: 126, y: 128 },
+    },
+  },
+  nether_dread_lord: NETHER_DREAD_LORD_SIZE,
+  nether_leech_pillar: NETHER_LEECH_PILLAR_SIZE,
+  nether_curse_pillar: NETHER_CURSE_PILLAR_SIZE,
+  nether_doom_pillar: NETHER_DOOM_PILLAR_SIZE,
 });
 
 export function resolveBossTargetHeight(kind, { sizeTier = null, customHeight = null } = {}) {
@@ -232,6 +314,10 @@ export function getBossVisualBounds(kind, x, baseline, bob, art, bossVisuals = n
     ...(spec?.anchors?.tailTip ? { tailTip: mapAnchor(spec.anchors.tailTip, bounds.minX + 56, bounds.maxY - 8) } : {}),
     ...(spec?.anchors?.leftThunderOrb ? { leftThunderOrb: mapAnchor(spec.anchors.leftThunderOrb, bounds.minX + 10, bounds.minY + 66) } : {}),
     ...(spec?.anchors?.rightThunderOrb ? { rightThunderOrb: mapAnchor(spec.anchors.rightThunderOrb, bounds.maxX - 13, bounds.minY + 26) } : {}),
+    ...(spec?.anchors?.sealLeft ? { sealLeft: mapAnchor(spec.anchors.sealLeft, centerX - 24, bounds.minY + bounds.height * 0.4) } : {}),
+    ...(spec?.anchors?.sealCenter ? { sealCenter: mapAnchor(spec.anchors.sealCenter, centerX, bounds.minY + bounds.height * 0.48) } : {}),
+    ...(spec?.anchors?.sealRight ? { sealRight: mapAnchor(spec.anchors.sealRight, centerX + 24, bounds.minY + bounds.height * 0.4) } : {}),
+    ...(spec?.anchors?.seal ? { seal: mapAnchor(spec.anchors.seal, centerX, bounds.minY + bounds.height * 0.35) } : {}),
     bodyCenter: mapAnchor(spec?.anchors?.bodyCenter, centerX, bounds.minY + bounds.height * 0.55),
     ward: {
       left: wardLeft,

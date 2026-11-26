@@ -1,0 +1,437 @@
+// Spell Foundry F90: authored native indexed pixel art. No image conversion.
+// Soul Leech Pillar — fixed stone body + independent 8-frame soul core.
+export const NETHER_LEECH_PILLAR_V2_MATERIALS = Object.freeze({
+  "A": [
+    "ink",
+    "#10131d"
+  ],
+  "B": [
+    "stoneDeep",
+    "#222533"
+  ],
+  "C": [
+    "stoneShadow",
+    "#303747"
+  ],
+  "D": [
+    "stoneMid",
+    "#444d60"
+  ],
+  "E": [
+    "stoneLight",
+    "#626d7e"
+  ],
+  "F": [
+    "stoneRim",
+    "#8996a0"
+  ],
+  "G": [
+    "metalDeep",
+    "#353539"
+  ],
+  "H": [
+    "metalShadow",
+    "#55534f"
+  ],
+  "I": [
+    "metalMid",
+    "#8a8470"
+  ],
+  "J": [
+    "metalLight",
+    "#b5ac91"
+  ],
+  "K": [
+    "metalRim",
+    "#dcd7bc"
+  ],
+  "L": [
+    "boneShadow",
+    "#665c5b"
+  ],
+  "M": [
+    "boneMid",
+    "#a49a8a"
+  ],
+  "N": [
+    "boneLight",
+    "#d2c7ad"
+  ],
+  "O": [
+    "boneRim",
+    "#f4e5c4"
+  ],
+  "P": [
+    "socket",
+    "#0d2928"
+  ],
+  "Q": [
+    "soulDeep",
+    "#12473d"
+  ],
+  "R": [
+    "soulShadow",
+    "#20735a"
+  ],
+  "S": [
+    "soulMid",
+    "#369a73"
+  ],
+  "T": [
+    "soulBright",
+    "#58dba2"
+  ],
+  "U": [
+    "soulLight",
+    "#93f4c5"
+  ],
+  "V": [
+    "soulCore",
+    "#e0ffe4"
+  ],
+  "W": [
+    "runeDeep",
+    "#3b5751"
+  ],
+  "X": [
+    "runeLit",
+    "#76bfa1"
+  ],
+  "Y": [
+    "soulReflection",
+    "#b5d9c6"
+  ]
+});
+export const NETHER_LEECH_PILLAR_V2_GRID = Object.freeze([
+  "................................................",
+  "................................................",
+  ".............A....................A.............",
+  "............AA....................AA............",
+  "...........AOA....................ANAA..........",
+  "..........AAOA....................ANAAA.........",
+  ".........AAONAA..................AAMNAAA........",
+  ".........AAONAA..................AAMNAAA........",
+  "........AAONNAA..................AAMMNAAA.......",
+  "........AAONNAA..................AAMMNAAA.......",
+  ".......AANONNNAA................AAMMMNMAAA......",
+  ".......ADONNNNAAA......A.......AAAMMMMNCAA......",
+  "......AADONNLLNAA.....AA......AAAMLLMMNCAAA.....",
+  "......ADONNLLLLAAA...AA......AAAALLLLMMNCAA.....",
+  "......ADONNALLLLAAA.A.......AAAALLLLAMMNCAA.....",
+  "......ADONLAALLLLAAA........AAALLLL.ALMMCAA.....",
+  "......AONNAA.ALAAAA..........AAAALA.AAMMCAA.....",
+  ".....AAONLA.W.AAAAA..........AAAAAW..ALMLAAA....",
+  ".....ADLNLA..W..AA............AA...W.ALMLCAA....",
+  ".....ADLLLA......A............A......ALLLCAA....",
+  ".....ADLLAA..........................AALLCAA....",
+  ".....ADDLXA..........................AWLCCAA....",
+  ".....ADILXA..........................AWLCCAA....",
+  "......AIKIA..........................AAJCAA.....",
+  "......ADIKA..........................AJCCAA.....",
+  "......ADIKIA........................AAJCCAA.....",
+  "......AADIKA........................AJCCAAA.....",
+  ".......ADIKIA......................AAJCCAA......",
+  ".......AGDIKKAA..................AAJJCCAAA......",
+  ".......AAGDIIKAA................AAJCCCAAAA......",
+  "........AADDIIIIAM............AAJACCCCAAA.......",
+  ".........AADDDIIAMM..........AAJJCCCCAAA........",
+  ".........AAAAADDIMMM.........AJJJCAAAAAA........",
+  "..........AAAAAAMMMMBBAA.AABAAJJJJAAAAA.........",
+  "...........AABAAMMMGBBBBBBBBBGAJJJBBAA..........",
+  "............AABGAIMJJGBBBBBGJJIJGGBAA...........",
+  "............AABBGGIKKJJGGGJJIIIGGBBAA...........",
+  ".............AABGGGGIKKJJJIIIGGGGBAA............",
+  ".............AAAABGGFFIIIIIGGGGBAAAA............",
+  "..............AAAEBBGGGGIGGGGBBCAAA.............",
+  "..............AAAFEABBBBBBBBABBCAAA.............",
+  "..............AAAAAIADGPSPGAHAACAAA.............",
+  "..............AAAAKKAGPSPPPAJHAAAAA.............",
+  "..............AAKKIIIAPSSPAHHJJHAAA.............",
+  "..............AAIIIIAPSPPSPAHHHHAAA.............",
+  "..............AAIIIAGGPSPSPGAHHHAAA.............",
+  "..............AAAAAEEGPPTPPGBAAAAAA.............",
+  "..............ABAFEEEGPPTPGBBBBAABA.............",
+  "..............ABAFBBEGGPTPGBBBCAABA.............",
+  "..............ABAFEBEDGPTPGBBBCAABA.............",
+  "..............ABADFBEDGGTGBBBBCAABA.............",
+  "..............ABADFEEDDGPGBBBBCAABA.............",
+  "..............ABADEEDDDGGBBBBBCAABA.............",
+  "..............ABADEEDDDWWWBBBCCAABA.............",
+  "..............ABADJDDDDDCCBBCCHAABA.............",
+  "..............ABAADJJJDDCCBCHHAAABA.............",
+  ".............AAGAAADDHJJCCHHCCAAAGAA............",
+  "............AAAGIAAADAAHHHAACAAAIGAAA...........",
+  "............AAGIJJAAAAAAAAAAAAAIIIGAA...........",
+  "...........AAGIKKKKAAAAAAAAAAAIIIIIGAA..........",
+  "...........AAAGGGGIIIIIIIIIIIIIGGGGBAA..........",
+  "..........AAABGGGGGGGGGGGGGGGGGGGGGBAAA.........",
+  "..........AAADEGGGGGGGGGGGGGGGGGGGCDBAA.........",
+  ".........AAADEEEEEEEEDDDDDDDDCCCCCCCDBAA........",
+  "........AADEEEEEEEEEDDDDDDDDDDCCCBCCCCDAA.......",
+  "......AAADEEEEEEEFFFFFFFFFFFFFFFCCBBCCCDBAA.....",
+  ".....AABFFFFFFFFFEDDDDDDDDDDDDCCFFFFFFFFFBAA....",
+  ".....AABBBDDDDDDDDDDDDDDDDDDDDDDDDDCDDBBBBAA....",
+  ".....AABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBAA....",
+  ".....AABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBAA....",
+  ".....AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA....",
+  "................................................"
+]);
+const CORE_FRAMES = Object.freeze([
+  [
+    "............................",
+    "..........AAAAAAA...........",
+    "........AAQQQQQQQAA.........",
+    "......AAQQUUUUUURQQAA.......",
+    ".....AAQUUSSSSSSRRRQAA......",
+    "....AQQUSSSSSSSSSSRRQQA.....",
+    "...AAQUSSUSSSSSSSSSRRQAA....",
+    "...AQUVVVSTSSSQSQSSSRRQA....",
+    "..AQUSVVVSUVUUUUTQSSSRRQA...",
+    "..AQUSYSSSUUUUUUUUQQSRRQA...",
+    ".AQUSSTSSUUPPUPPUUUTQSRRQA..",
+    ".AQUSTSSSQUPPUPPUUUTQSRRQA..",
+    ".AQUSSSSQTUUUUUUUQUTQSRRQA..",
+    ".AQRSSSQTUTUUSUUUQUVQSRRQA..",
+    ".AQRSSQTUTQSUUUQQTUTQSQQQA..",
+    ".AQRSSQTTQQSSSSTTTQQSSQQQA..",
+    ".AQRRSSQTTQSSSSTTQSSSQQQQA..",
+    "..AQRSSQTTSSSSQTTQSSSQQQA...",
+    "..AQRRQTTTQSSSQQTTQSQQQQA...",
+    "...AQRTTTQTSSSSQTTQRTQQA....",
+    "...AAQRTQSSSSSSQSSQRQQAA....",
+    "....AQQRRQQSSSSSQQQQQQA.....",
+    ".....AAQRQQQQQQQQQQQAA......",
+    "......AAQQQQQQQQQQQAA.......",
+    "........AAQQQQQQQAA.........",
+    "..........AAAAAAA...........",
+    "............................",
+    "............................"
+  ],
+  [
+    "............................",
+    "..........AAAAAAA...........",
+    "........AAQQQQQQQAA.........",
+    "......AAQQUUUUUURQQAA.......",
+    ".....AAQUUSSSSSSRRRQAA......",
+    "....AQQUSSSSSSSSSSRRQQA.....",
+    "...AAQUSSUSSSSSTSSSRRQAA....",
+    "...AQUVVVSSSSSQSQSSSRRQA....",
+    "..AQUSVVVSUVUUUUTQSSSRRQA...",
+    "..AQUSYSSSUUUUUUUUQQSRRQA...",
+    ".AQUSSTSSUUPPUPPUUUTQSRRQA..",
+    ".AQUSTSSQQUPPUPPUUUTQSRRQA..",
+    ".AQUSSSSQTUUUUUUUQUTQSRRQA..",
+    ".AQRSSSQQTUUUSUUUQUTQSRRQA..",
+    ".AQRSSSQTUTQUUUSQTUTQSQQQA..",
+    ".AQRSSSTTTQQSSSQTTTQSSQQQA..",
+    ".AQRRSSSQTTQSSSQTTQSSQQQQA..",
+    "..AQRSSSQTTSSSSQTTQSSQQQA...",
+    "..AQRRQQTTTSSSSQTVQSQQQQA...",
+    "...AQRTTTQQQSSSQTTQRTQQA....",
+    "...AAQRTQQSSSSSSSSQRQQAA....",
+    "....AQQRQQQSSSSSQQQQQQA.....",
+    ".....AAQRQQQQQQQQQQQAA......",
+    "......AAQQQQQQQQQQQAA.......",
+    "........AAQQQQQQQAA.........",
+    "..........AAAAAAA...........",
+    "............................",
+    "............................"
+  ],
+  [
+    "..........AAAAAAA...........",
+    "........AAQQQQQQQAA.........",
+    "......AAQQUUUUUURQQAA.......",
+    ".....AAQUUSSSSSSRRRQAA......",
+    "....AQQUSSSSSSSSSSRRQQA.....",
+    "...AAQUSSUSSSSSSSSSRRQAA....",
+    "...AQUVVVSSSSSQSQSSSRRQA....",
+    "..AQUSVVVSSUVUUUUQSSSRRQA...",
+    "..AQUSYSTSSUUUUUUUQQSRRQA...",
+    ".AQUSSTSSSUUPPUPPUTTQSRRQA..",
+    ".AQUSTSSSQTUPPUPPUUTQSRRQA..",
+    ".AQUSSSSSQTUUUUUUUUTQSRRQA..",
+    ".AQRSSSSQTUQUUSUUUUTQSRRQA..",
+    ".AQRSSSSQTUQSUUUSQUTQSQQQA..",
+    ".AQRSSSSQTTQQSSSQQTQSSQQQA..",
+    ".AQRRSSSSQTTQSSSQTTQSQQQQA..",
+    "..AQRSSSQQTTSSSQQTTQSQQQA...",
+    "..AQRRQQQTTTSSSQTTQSQQQQA...",
+    "...AQRQTTTQQSSSSTTQRTQQA....",
+    "...AAQRTQQSSSVSSSSQRQQAA....",
+    "....AQQQRQQSSSSSQQQQQQA.....",
+    ".....AAQRQQQQQQQQQQQAA......",
+    "......AAQQQQQQQQQQQAA.......",
+    "........AAQQQQQQQAA.........",
+    "..........AAAAAAA...........",
+    "............................",
+    "............................",
+    "............................"
+  ],
+  [
+    "..........AAAAAAA...........",
+    "........AAQQQQQQQAA.........",
+    "......AAQQUUUUUURQQAA.......",
+    ".....AAQUUSSSSSSRRRQAA......",
+    "....AQQUSSSSSSSSSSRRQQA.....",
+    "...AAQUSSUSTSSSSSSSRRQAA....",
+    "...AQUVVVSSSSSQSQSSSRRQA....",
+    "..AQUSVVVSUVUUUUTQSSSRRQA...",
+    "..AQUSYSSSUUUUUUUUQQSRRQA...",
+    ".AQUSSTSSUUPPUPPUUUTQSRRQA..",
+    ".AQUSTSSQQUPPUPPUUUTQSRRQA..",
+    ".AQUSSSSQTUUUUUUUQUTQSRRQA..",
+    ".AQRSSSQQTUUUSUUUQUTQSRRQA..",
+    ".AQRSSSQTUTQUUUSQTUTQSQQQA..",
+    ".AQRSSSQTTQQSSSQTTTTSSQQQA..",
+    ".AQRRSSSQTTQSSSQTTQSSQQQQA..",
+    "..AQRSSSQTTSSSSQTTQSSQQQA...",
+    "..AQRRQQTVTSSSSQTTQSQQQQA...",
+    "...AQRTTTQQQSSSQTTQRTQQA....",
+    "...AAQRTQQSSSSSSSSQRQQAA....",
+    "....AQQRQQQSSSSSQQQQQQA.....",
+    ".....AAQRQQQQQQQQQQQAA......",
+    "......AAQQQQQQQQQQQAA.......",
+    "........AAQQQQQQQAA.........",
+    "..........AAAAAAA...........",
+    "............................",
+    "............................",
+    "............................"
+  ],
+  [
+    "............................",
+    "..........AAAAAAA...........",
+    "........AAQQQQQQQAA.........",
+    "......AAQQUUUUUURQQAA.......",
+    ".....AAQUUSSSSSSRRRQAA......",
+    "....AQQUSSSSSSSSSSRRQQA.....",
+    "...AAQUSSUSSSSSSSSSRRQAA....",
+    "...AQUVVVSSSSSQSTSSSRRQA....",
+    "..AQUSVVVSUVUUUUTQSSSRRQA...",
+    "..AQUSYSSSUUUUUUUUQQSRRQA...",
+    ".AQUSSTSSUUPPUPPUUUTQSRRQA..",
+    ".AQUSTSSSQUPPUPPUUUTQSRRQA..",
+    ".AQUSSSSQTUUUUUUUQUTQSRRQA..",
+    ".AQRSSSVTUTUUSUUUQUTQSRRQA..",
+    ".AQRSSQTUTQSUUUQQTUTQSQQQA..",
+    ".AQRSSQTTQQSSSSTTTQQSSQQQA..",
+    ".AQRRSSQTTQSSSSTTQSSSQQQQA..",
+    "..AQRSSQTTSSSSQTTQSSSQQQA...",
+    "..AQRRQTTTQSSSQQTTQSQQQQA...",
+    "...AQRTTTQSSSSSQTTQRTQQA....",
+    "...AAQRTQSSSSSSQSSQRQQAA....",
+    "....AQQRRQQSSSSSQQQQQQA.....",
+    ".....AAQRQQQQQQQQQQQAA......",
+    "......AAQQQQQQQQQQQAA.......",
+    "........AAQQQQQQQAA.........",
+    "..........AAAAAAA...........",
+    "............................",
+    "............................"
+  ],
+  [
+    "............................",
+    "..........AAAAAAA...........",
+    "........AAQQQQQQQAA.........",
+    "......AAQQUUUUUURQQAA.......",
+    ".....AAQUUSSSSSSRRRQAA......",
+    "....AQQUSSSSSSSSSSRRQQA.....",
+    "...AAQUSSUSSSSSSSSSRRQAA....",
+    "...AQUVVVSSSSSQSQSSSRRQA....",
+    "..AQUSVVVVVUUUUUTQSSSRRQA...",
+    "..AQUSYSSUUUUUUUUUQQSRRQA...",
+    ".AQUSSTSUUPPUPPUUTUTQSRRQA..",
+    ".AQUSTSSSUPPUPPUUQUTQSRRQA..",
+    ".AQUSSSQQUUUUUUUSQUTQSRRQA..",
+    ".AQRSSQTUTUUSUUUQQUTQSRRQA..",
+    ".AQRSQTUTQQUUUQQTTUTQSQQQA..",
+    ".AQRSQTTQQSSSSTTTQQQSSQQQA..",
+    ".AQRRSQTTQSSSSTTQQSSSQQQQA..",
+    "..AQRSQTTSSSSQTTTQSSSQQQA...",
+    "..AQRRQTQQSSSSQTTQQSQQQQA...",
+    "...AQQTTQSSSSSQTTTSRTQQA....",
+    "...AAQRRQSSTSSSQTSQRQQAA....",
+    "....AQQRRQQSSSSSQQQQQQA.....",
+    ".....AAQRQQQQQQQQQQQAA......",
+    "......AAQQQQQQQQQQQAA.......",
+    "........AAQQQQQQQAA.........",
+    "..........AAAAAAA...........",
+    "............................",
+    "............................"
+  ],
+  [
+    "............................",
+    "............................",
+    "..........AAAAAAA...........",
+    "........AAQQQQQQQAA.........",
+    "......AAQQUUUUUURQQAA.......",
+    ".....AAQUUSSSSSSRRRQAA......",
+    "....AQQUSSSSSSSSSSRRQQA.....",
+    "...AAQUSSUSSSVSSSSSRRQAA....",
+    "...AQUVVVSSSSSQSQSSSRRQA....",
+    "..AQUSVVVUVUUUUUTQSSSRRQA...",
+    "..AQUSYSSUUUUUUUUUQQSRRQA...",
+    ".AQUSSTSUUPPUPPUUTUTQSRRQA..",
+    ".AQUSTSSQUPPUPPUUQUTQSRRQA..",
+    ".AQUSSSQTUUUUUUUSQUTQSRRQA..",
+    ".AQRSQQUUTUUSUUUQQUTQSRRQA..",
+    ".AQRQTUTTQQUUUQQTTUTQSQQQA..",
+    ".AQRQTTQQQSSSTTTQQQQSSQQQA..",
+    ".AQRRQTTTSSSSTTQQSSSSQQQQA..",
+    "..AQRQTTQSSSQTTTQSTSSQQQA...",
+    "..AQRQTTQSSSSQTTTQSSQQQQA...",
+    "...AQQTTQSSSSSQTTTSRTQQA....",
+    "...AAQRRSSSSSSSQTSQRQQAA....",
+    "....AQQRRQQSSSSSQQQQQQA.....",
+    ".....AAQRQQQQQQQQQQQAA......",
+    "......AAQQQQQQQQQQQAA.......",
+    "........AAQQQQQQQAA.........",
+    "..........AAAAAAA...........",
+    "............................"
+  ],
+  [
+    "............................",
+    "............................",
+    "..........AAAAAAA...........",
+    "........AAQQQQQQQAA.........",
+    "......AAQQUUUUUURQQAA.......",
+    ".....AAQUUSSSSSSRRRQAA......",
+    "....AQQUSSSSSSSSSSRRQQA.....",
+    "...AAQUSSUSSSSSSSSSRRQAA....",
+    "...AQUVVVSSSSSQSQSSSRRQA....",
+    "..AQUSVVVUVUUUUUTVSSSRRQA...",
+    "..AQUSYSSUUUUUUUUUQQSRRQA...",
+    ".AQUSSTSUUPPUPPUUTUTQSRRQA..",
+    ".AQUSTSTSUPPUPPUUQUTQSRRQA..",
+    ".AQUSSSQQUUUUUUUSQUTQSRRQA..",
+    ".AQRSSQTUTUUSUUUQQUTQSRRQA..",
+    ".AQRSQTUTQQUUUQQTTUTQSQQQA..",
+    ".AQRSQTTQQSSSSTTTQQQSSQQQA..",
+    ".AQRRSQTTQSSSSTTQQSSSQQQQA..",
+    "..AQRSQTTSSSSQTTTQSSSQQQA...",
+    "..AQRRQTQQSSSSQTTQQSQQQQA...",
+    "...AQQTTQSSSSSQTTTSRTQQA....",
+    "...AAQRRQSSSSSSTTSQRQQAA....",
+    "....AQQRRQQSSSSSQQQQQQA.....",
+    ".....AAQRQQQQQQQQQQQAA......",
+    "......AAQQQQQQQQQQQAA.......",
+    "........AAQQQQQQQAA.........",
+    "..........AAAAAAA...........",
+    "............................"
+  ]
+].map(Object.freeze));
+export const NETHER_LEECH_PILLAR_V2_DEF = Object.freeze({
+  grid: NETHER_LEECH_PILLAR_V2_GRID,
+  materials: NETHER_LEECH_PILLAR_V2_MATERIALS,
+  parts: Object.freeze({ soulCore: Object.freeze({ anchor: { x: 10, y: 9 }, joint: { x: 0, y: 0 }, z: 'behind', frames: CORE_FRAMES }) }),
+  animate({ frame = 0, now = 0, pose = 'idle', reducedMotion = false, supporting = false } = {}) {
+    if (pose === 'dead') return { partStates: { hideParts: true }, effects: [] };
+    const tick = reducedMotion ? 0 : (now > 0 ? Math.floor(now / 180) : frame);
+    const f = ((tick % 8) + 8) % 8;
+    return { partStates: { soulCore: { frame: f, dx: 0, dy: 0 } }, effects: supporting ? [{ type: 'abyssalPulse', anchor: 'head', color: '#93f4c5', rx: 9 }] : [] };
+  },
+});
+export const NETHER_LEECH_PILLAR_SIZE = Object.freeze({
+  defaultTier: 'large', defaultHeight: 52, tiers: {standard:44, large:52, grand:60},
+  offset: {x:0, baseline:0}, layer:'foreground',
+  bodyBox:{minX:5,maxX:43,minY:2,maxY:70},
+  anchors:{head:{x:24,y:22},chest:{x:24,y:37},weapon:{x:24,y:22},bodyCenter:{x:24,y:44}}
+});

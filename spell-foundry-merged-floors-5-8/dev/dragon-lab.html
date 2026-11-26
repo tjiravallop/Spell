@@ -50,6 +50,7 @@
     <label>Mode
       <select name="mode">
         <option value="lineup">All 27 Species Lineup (XS → XXL)</option>
+        <option value="palette-coverage">E1 elemental palette sheet</option>
         <option value="species">Single Species (V1 vs V2 Size)</option>
         <option value="dragon-elements">Dragon V1 vs V2 (All Elements)</option>
         <option value="phoenix-elements">Phoenix V1 vs V2</option>
@@ -101,7 +102,7 @@
   <main id="previews" aria-label="Summon size comparisons"></main>
   <script type="module">
     import { Battlefield, getSummonAnchor, getSummonBounds } from '../src/render.js';
-    import { FUSION_SUMMON_PALETTES } from '../src/summon-palettes.js';
+    import { FUSION_SUMMON_PALETTES, SUMMON_BODY_PALETTES } from '../src/summon-palettes.js';
     import { SUMMON_ART, DRAGON_ART_V2, HYDRA_ART_V2, BEHEMOTH_ART_V2, KRAKEN_ART_V2, drawSummonArt, resolveSummonArt } from '../src/summon-art.js';
     import { CREATURE_15_27_V2 } from '../src/creature-15-27-art-v2.js';
     import { SUMMON_SIZE_V2, getOpaqueBounds, resolveCreatureScale } from '../src/summon-sizes.js';
@@ -140,6 +141,8 @@
     const allElements = new Option('All prototype elements', 'all-elements');
     element.add(allElements, 0);
     const prototype = new URLSearchParams(location.search).get('prototype');
+    const paletteSheet = new URLSearchParams(location.search).get('paletteSheet');
+    if (paletteSheet) mode.value = 'palette-coverage';
     const batchPrototypes = ['eagle', 'bird', 'bat', 'hornet', 'wolf',
       ...Object.keys(CREATURE_15_27_V2)];
     for (const id of Object.keys(CREATURE_15_27_V2)) {
@@ -263,6 +266,65 @@
     showIndexedMaster(behemothMaster, BEHEMOTH_ART_V2);
     showIndexedMaster(krakenMaster, KRAKEN_ART_V2);
 
+    function renderPaletteSheet() {
+      const samples = [
+        ['dragon', 'fire', 'akki'], ['golem', 'ice', 'heman'],
+        ['siren', 'lightning', 'asani'], ['bat', 'earth', 'pathaphi'],
+        ['slime', 'water', 'wari'], ['dragon', 'wind', 'vayu'],
+        ['golem', 'magnet'], ['bat', 'magma'], ['siren', 'hail'],
+      ].flatMap(([creature, ...ids]) => ids.map(id => [creature, id]));
+      const sheet = document.createElement('canvas');
+      sheet.id = 'elemental-palette-sheet';
+      sheet.width = 1440;
+      sheet.height = 790;
+      sheet.style.cssText = 'display:block;max-width:100%;height:auto;image-rendering:pixelated';
+      sheet.setAttribute('role', 'img');
+      sheet.setAttribute('aria-label', 'Fifteen elemental palettes in Normal and Grand across Dragon, Golem, Siren, Bat, and Slime');
+      const ctx = sheet.getContext('2d');
+      const caption = (label, x, y, size = 13) => {
+        ctx.font = `${size}px system-ui`;
+        ctx.fillStyle = '#f2e8dc';
+        ctx.fillText(label, x, y);
+      };
+      ctx.fillStyle = '#171322';
+      ctx.fillRect(0, 0, sheet.width, sheet.height);
+      const preview = paletteSheet !== 'legacy';
+      caption(`E1  /  ${preview ? 'Elemental body palettes' : 'Legacy body tints'}`, 14, 27, 22);
+      caption('Tier 1 and Tier 2 family pairs · Tier 3 contrast references · production sprite scale', 14, 48);
+      battlefield.settings.reducedMotion = true;
+      const sampleWidth = 174;
+      const sampleHeight = 151;
+      for (const [index, [creatureId, id]] of samples.entries()) {
+        const x = 12 + (index % 4) * 356;
+        const y = 65 + Math.floor(index / 4) * 181;
+        const ramp = SUMMON_BODY_PALETTES[id] ?? FUSION_SUMMON_PALETTES[id];
+        const tier = index >= 12 ? 3 : index % 2 + 1;
+        caption(`T${tier}  ${title(id)} · ${title(creatureId)}`, x, y);
+        if (preview || tier === 3) [ramp.shadow, ramp.midtone, ramp.highlight].forEach((color, stop) => {
+          ctx.fillStyle = color;
+          ctx.fillRect(x + 303 + stop * 15, y - 10, 14, 10);
+        });
+        const options = { sizeV2: true, creaturePaletteV2: true, bodyPaletteV2: preview,
+          [`${creatureId}V2`]: true, aura: false };
+        battlefield.summonVisuals = options;
+        for (const [column, isGrand] of [false, true].entries()) {
+          const summon = { creatureId, element: id, isGrand };
+          const { x: anchorX, baseline } = getSummonAnchor(summon, options);
+          battlefield.ctx.drawImage(battlefield.background, 0, 0);
+          battlefield.drawSummonSprite(summon, anchorX, baseline, 0, null, 0, true);
+          const sampleX = x + column * (sampleWidth + 2);
+          ctx.drawImage(stage, 0, 0, sampleWidth, sampleHeight, sampleX, y + 5, sampleWidth, sampleHeight);
+          caption(isGrand ? 'Grand' : 'Normal', sampleX + 5, y + 167);
+        }
+      }
+      const download = document.createElement('a');
+      download.textContent = 'Download PNG';
+      download.download = 'elemental-palette-e1.png';
+      download.href = sheet.toDataURL('image/png');
+      previews.replaceChildren(download, sheet);
+      status.textContent = '15 elements · 5 species · Normal and Grand · aura hidden for body review';
+    }
+
     function render() {
       const creature = mode.value.replace('-elements', '');
       const benchmarks = mode.value === 'hydra-benchmarks';
@@ -270,6 +332,13 @@
       hydraMaster.hidden = creature !== 'hydra';
       behemothMaster.hidden = creature !== 'behemoth';
       krakenMaster.hidden = creature !== 'kraken';
+      for (const control of form.elements) {
+        if (control !== mode) control.closest('label').hidden = creature === 'palette-coverage';
+      }
+      if (creature === 'palette-coverage') {
+        renderPaletteSheet();
+        return;
+      }
       allElements.hidden = !prototypeComparison;
       if (!prototypeComparison && element.value === allElements.value) element.value = 'uninfused';
       for (const control of [species, normalScale, grandScale, dragonV2]) {

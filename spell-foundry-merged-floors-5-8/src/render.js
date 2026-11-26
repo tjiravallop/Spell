@@ -1,14 +1,23 @@
 import { shieldProtection } from './shields.js';
-import { ENEMIES, FLOOR21_START_ROOM, FLOOR30_BOSS_ROOM, FLOOR40_BOSS_ROOM, FLOOR50_BOSS_ROOM, FLOOR60_BOSS_ROOM, FLOOR70_BOSS_ROOM, RELIC_DRAFT_CATALOG, getFloorInfo } from './run.js';
+import { ENEMIES, FLOOR21_START_ROOM, FLOOR30_BOSS_ROOM, FLOOR40_BOSS_ROOM, FLOOR50_BOSS_ROOM, FLOOR60_BOSS_ROOM, FLOOR70_BOSS_ROOM, FLOOR80_BOSS_ROOM, FLOOR90_BOSS_ROOM, NETHER_PILLAR_KINDS, RELIC_DRAFT_CATALOG, getFloorInfo } from './run.js';
 import { elementFamily, FUSION_COMPONENTS } from './words.js';
 import { middleSprites } from './middle-sprites.js';
 import { loadSpriteArt, spriteFrame } from './sprite-art.js';
 import { drawTowerFittings, towerArtPalette, towerEnemyArt } from './tower-enemy-art.js';
 import { drawNewTowerSprite, GEAR_RIFT_SPRITE_KINDS } from './tower-pixel-sprites.js';
-import { drawSummonArt, resolveSummonArt, SUMMON_ART } from './summon-art.js';
+import { drawSummonArt, elementVariantFor, resolveSummonArt, SUMMON_ART } from './summon-art.js';
 import { resolveCreatureOffset, resolveCreatureScale } from './summon-sizes.js';
-import { FUSION_SUMMON_PALETTES } from './summon-palettes.js';
+import { FUSION_SUMMON_PALETTES, SUMMON_BODY_PALETTES } from './summon-palettes.js';
+import { prepareSummonAuraV2, drawSummonAuraLayerV2 } from './summon-aura-v2.js';
+import { prepareSummonInvokeV2, drawSummonInvokeBodyV2, drawSummonInvokeLayerV2 } from './summon-invoke-v2.js';
+import { drawSummonAttackAnatomy, mapSummonAttackMark, prepareSummonAttackPose, summonAttackDelivery, summonAttackFxProgress } from './summon-attack-v2.js';
+import { mapSummonIdleMark, prepareSummonIdlePose } from './summon-idle-v2.js';
+import { drawSummonCombatV2 } from './summon-combat-v2.js';
 import { drawBossArt, evaluateBossAnimation, resolveBossArt } from './boss-art-v2.js';
+import { drawCthulhuConductivity } from './boss-art/cthulhu-conductivity-vfx.js';
+import { drawAbyssalTsunami } from './boss-art/abyssal-tsunami-v3.js';
+import { PALETTE as RIFT_PALETTE, drawAbyssalArrivalPulse, drawAbyssalRift, revealState } from './boss-art/abyssal-rift-v2.js';
+import { drawNetherChain, drawNetherCombat, netherEventKind } from './boss-art/nether-combat-vfx.js';
 import { getBossVisualBounds, resolveBossLayer, resolveBossOffset, resolveBossScale } from './boss-sizes.js';
 
 export const PALETTE = ['#10191b', '#172326', '#203033', '#2b3d3c', '#3b4b46', '#536454', '#718063', '#9da77c', '#cbd5a1', '#eff0c4', '#332d2b', '#514036', '#765740', '#a57a50', '#d3aa6b', '#efd19a', '#4d3036', '#7b464c', '#b46c67', '#e29d83', '#3d374e', '#60516f', '#907ba6', '#bca5d2', '#335250', '#53857b', '#8bb7a0', '#b7d9bd', '#7e512e', '#b98745', '#e4b659', '#f5db87'];
@@ -179,6 +188,9 @@ const fusionSummonPalettesV2 = new Map(Object.entries(FUSION_SUMMON_PALETTES).ma
   id, Object.freeze({ ...palette, summonMark: fusedSummonMarks[id] }),
 ]));
 const fusionSummonPalette = (element, visuals) => visuals?.v2 ? fusionSummonPalettesV2.get(element) : undefined;
+const summonBodyPalettes = new Map(Object.entries(SUMMON_BODY_PALETTES).map(([id, ramp]) => [
+  id, Object.freeze({ ...ELEMENT_IMPACT[id], ...ramp }),
+]));
 elementColor['akki-blast'] = elementColor.akki;
 export const vfxScale = source => (source?.grand ? 5 : source?.large ? 2 : 1);
 
@@ -346,25 +358,44 @@ export class Battlefield {
     const lastEvent = events.at(-1);
     const victoryHold = Math.round((lastEvent?.type === 'room-clear' ? 900 : 0) / speed);
     const actionEvents = victoryHold ? events.slice(0, -1) : events;
+    let scheduledSummon = this.state?.player?.summon || this.state?.summon || null;
     const rawEnds = actionEvents.map(event => {
       const action = ['projectile', 'attack', 'mirror-reflect', 'ember-thorns', 'storm-static', 'nether-curse', 'cosmic-echo', 'blast', 'shield', 'shield-delay', 'fizzle', 'blackhole-open', 'boss-phase', 'timestop', 'ascension', 'ascension-ready', 'summon', 'summon_invoke', 'summon_hit', 'summon_strike', 'summon_relay', 'summon_counter', 'summon_break', 'summon_rebirth'].includes(event.type)
         || Boolean(event.specialBoss && event.type === 'charge');
       const ultBonus = (event.ultimate && event.type === 'attack') ? 180 : event.type === 'boss-phase' ? 280 : 0;
       const wardHold = event.type === 'projectile' && event.blocked ? 160 : 0;
-      const baseStep = this.settings.reducedMotion ? (action ? 200 : 110) : (action ? 520 : 260) + wardHold + ultBonus;
+      const eventSummon = event.type === 'summon_counter'
+        ? scheduledSummon
+        : event.type === 'summon_strike' && (!event.creature || event.creature === scheduledSummon?.creatureId)
+          ? scheduledSummon
+          : null;
+      const summonAttack = this.summonVisuals?.summonAttackV2 && eventSummon
+        && ['summon_strike', 'summon_counter'].includes(event.type);
+      const baseStep = this.settings.reducedMotion
+        ? (action ? 200 : 110)
+        : summonAttack ? (eventSummon.isGrand ? 1500 : 1100) : (action ? 520 : 260) + wardHold + ultBonus;
       this.duration += Math.round(baseStep / speed);
+      if (event.type === 'summon_invoke') {
+        scheduledSummon = { creatureId: event.creature, isGrand: Boolean(event.isGrand) };
+      } else if (['summon_break', 'summon_depart', 'phoenix_revive', 'cheat_death'].includes(event.type)) {
+        scheduledSummon = null;
+      }
       return this.duration;
     });
-    const minDuration = Math.round((this.settings.reducedMotion ? 500 : 1500) / speed);
-    const maxDuration = Math.round((this.settings.reducedMotion ? 1200 : 3400) / speed);
-    if (this.duration > maxDuration && this.duration > 0) {
-      const scale = maxDuration / this.duration;
-      this.eventEnds = rawEnds.map(end => Math.round(end * scale));
-      this.duration = maxDuration;
-    } else if (this.duration > 0 && this.duration < minDuration) {
-      const scale = minDuration / this.duration;
-      this.eventEnds = rawEnds.map(end => Math.round(end * scale));
-      this.duration = minDuration;
+    if (this.settings.reducedMotion && this.duration > 0) {
+      const minDuration = Math.round(500 / speed);
+      const maxDuration = Math.round(1200 / speed);
+      if (this.duration > maxDuration) {
+        const scale = maxDuration / this.duration;
+        this.eventEnds = rawEnds.map(end => Math.round(end * scale));
+        this.duration = maxDuration;
+      } else if (this.duration < minDuration) {
+        const scale = minDuration / this.duration;
+        this.eventEnds = rawEnds.map(end => Math.round(end * scale));
+        this.duration = minDuration;
+      } else {
+        this.eventEnds = rawEnds;
+      }
     } else {
       this.eventEnds = rawEnds;
     }
@@ -380,7 +411,30 @@ export class Battlefield {
     const basePositions = this.positions();
     let curProtection = shieldProtection(this.state?.player.shield);
     const curPositions = [...basePositions];
-    const curDead = new Set();
+    const killedInBatch = new Set();
+    let hasNetherPhase2Event = false;
+    let hasNetherPurgeEvent = false;
+    for (const ev of this.events) {
+      if ((ev.killed || ev.damage?.killed) && ev.target) killedInBatch.add(ev.target);
+      if (ev.pierceHit && (ev.pierceHit.killed || ev.pierceHit.damage?.killed) && ev.pierceHit.target) killedInBatch.add(ev.pierceHit.target);
+      if (ev.type === 'blast' && Array.isArray(ev.hits)) {
+        for (const h of ev.hits) if (h.damage?.killed && h.damage.target) killedInBatch.add(h.damage.target);
+      }
+      if (ev.type === 'boss-phase' && ev.sourceKind === 'nether_dread_lord' && ev.phase === 2) {
+        hasNetherPhase2Event = true;
+        if (Array.isArray(ev.sacrificedIds)) for (const id of ev.sacrificedIds) killedInBatch.add(id);
+      }
+      if (ev.type === 'nether-purge' && ev.targetKind === 'nether_dread_lord') {
+        hasNetherPurgeEvent = true;
+      }
+    }
+    const curDead = new Set(enemies.filter(e => e.hp <= 0 && !killedInBatch.has(e.id)).map(e => e.id));
+    const netherBoss = enemies.find(e => e.kind === 'nether_dread_lord');
+    let curNetherPhase = hasNetherPhase2Event ? 1 : (this.state?.netherPhase ?? 1);
+    let curNetherPurged = hasNetherPurgeEvent
+      ? false
+      : Boolean(netherBoss && (netherBoss.netherPurgeUntil ?? 0) >= (this.state?.turn ?? 0));
+    let lastBrokenPillarId = null;
     const curWards = Object.fromEntries(enemies.map(e => [e.id, e.ward]));
     const oldPuddles = new Set(this.state?.magmaPuddles);
     const newPuddles = new Set();
@@ -400,6 +454,9 @@ export class Battlefield {
         puddles: new Set([...oldPuddles, ...newPuddles]),
         blackholes: new Set([oldBlackhole, newBlackhole].filter(slot => slot !== undefined)),
         summon: curSummon ? { ...curSummon } : null,
+        netherPhase: curNetherPhase,
+        netherPurged: curNetherPurged,
+        lastBrokenPillarId,
       });
       const ev = this.events[i];
       if (!ev) break;
@@ -431,6 +488,8 @@ export class Battlefield {
         if ((ev.killed || ev.damage?.killed) && ev.target && deathStartMs[ev.target] === undefined) {
           curDead.add(ev.target);
           deathStartMs[ev.target] = frontAt;
+          const ke = enemies.find(e => e.id === ev.target);
+          if (ke && NETHER_PILLAR_KINDS.includes(ke.kind)) lastBrokenPillarId = ev.target;
         }
         this.contacts.push({ event: { ...ev, pierceHit: undefined }, at: frontAt, index: i });
         if (ev.pierceHit.dispel && ev.pierceHit.target) {
@@ -447,12 +506,28 @@ export class Battlefield {
         if ((ev.pierceHit.killed || ev.pierceHit.damage?.killed) && ev.pierceHit.target && deathStartMs[ev.pierceHit.target] === undefined) {
           curDead.add(ev.pierceHit.target);
           deathStartMs[ev.pierceHit.target] = backAt;
+          const ke = enemies.find(e => e.id === ev.pierceHit.target);
+          if (ke && NETHER_PILLAR_KINDS.includes(ke.kind)) lastBrokenPillarId = ev.pierceHit.target;
         }
         this.contacts.push({ event: { ...ev.pierceHit, spearPierceSilentLaunch: true }, at: backAt, index: i });
       } else {
         if ((ev.killed || ev.damage?.killed) && ev.target && deathStartMs[ev.target] === undefined) {
           curDead.add(ev.target);
           deathStartMs[ev.target] = contact;
+          const killedEnemy = enemies.find(e => e.id === ev.target);
+          if (killedEnemy && NETHER_PILLAR_KINDS.includes(killedEnemy.kind)) lastBrokenPillarId = ev.target;
+        }
+        if (ev.type === 'boss-phase' && ev.sourceKind === 'nether_dread_lord' && ev.phase === 2) {
+          curNetherPhase = 2;
+          if (ev.mode === 'sacrifice' && Array.isArray(ev.sacrificedIds)) {
+            for (const id of ev.sacrificedIds) {
+              curDead.add(id);
+              if (deathStartMs[id] === undefined) deathStartMs[id] = start;
+            }
+          }
+        }
+        if (ev.type === 'nether-purge' && ev.targetKind === 'nether_dread_lord') {
+          curNetherPurged = true;
         }
         if (ev.type === 'push') {
           const idx = enemies.findIndex(enemy => enemy.id === ev.target);
@@ -493,6 +568,8 @@ export class Battlefield {
           if (damage.killed) {
             curDead.add(damage.target);
             deathStartMs[damage.target] = at;
+            const ke = enemies.find(e => e.id === damage.target);
+            if (ke && NETHER_PILLAR_KINDS.includes(ke.kind)) lastBrokenPillarId = damage.target;
           }
         }
       }
@@ -550,12 +627,15 @@ export class Battlefield {
   }
   configure(settings) { this.settings = settings; }
   enemyX(enemy, slot = enemy.slot) {
-    if ((this.state?.room === FLOOR30_BOSS_ROOM || this.state?.room === FLOOR40_BOSS_ROOM || this.state?.room === FLOOR50_BOSS_ROOM || this.state?.room === FLOOR60_BOSS_ROOM || this.state?.room === FLOOR70_BOSS_ROOM) && this.state.enemies?.some(e => resolveBossArt(e.kind, this.bossVisuals) && resolveBossLayer(e.kind, this.bossVisuals) === 'rear')) {
+    if ((this.state?.room === FLOOR30_BOSS_ROOM || this.state?.room === FLOOR40_BOSS_ROOM || this.state?.room === FLOOR50_BOSS_ROOM || this.state?.room === FLOOR60_BOSS_ROOM || this.state?.room === FLOOR70_BOSS_ROOM || this.state?.room === FLOOR90_BOSS_ROOM) && this.state.enemies?.some(e => resolveBossArt(e.kind, this.bossVisuals) && resolveBossLayer(e.kind, this.bossVisuals) === 'rear')) {
       const mode = this.bossVisuals?.rearFormation ?? 'B';
       const isF50 = this.state?.room === FLOOR50_BOSS_ROOM;
       const isF60OrF70 = this.state?.room === FLOOR60_BOSS_ROOM || this.state?.room === FLOOR70_BOSS_ROOM;
-      const map = isF60OrF70
-        ? { boss: 228, m0: 172, m1: 220, m2: 268 }
+      const isF90 = this.state?.room === FLOOR90_BOSS_ROOM;
+      const map = isF90
+        ? { boss: 226, m0: 172, m1: 220, m2: 268 }
+        : isF60OrF70
+          ? { boss: 228, m0: 172, m1: 220, m2: 268 }
         : isF50
           ? { boss: 226, m0: 172, m1: 220, m2: 268 }
           : mode === 'A'
@@ -569,6 +649,9 @@ export class Battlefield {
       if (mIdx === 0) return map.m0;
       if (mIdx === 1) return map.m1;
       if (mIdx === 2 && map.m2 !== undefined) return map.m2;
+    }
+    if (this.state?.room === FLOOR80_BOSS_ROOM && enemy?.kind === 'abyssal_cthulhu' && resolveBossArt('abyssal_cthulhu', this.bossVisuals)) {
+      return 216;
     }
     if (this.state?.room >= FLOOR21_START_ROOM) return 126 + slot * 41;
     if (LARGE_BOSS_KINDS.has(enemy.kind)) return 235 + slot * 10;
@@ -643,6 +726,88 @@ export class Battlefield {
           g.fillStyle = isPulse ? (fx.pulseColor ?? '#ffffff') : (fx.color ?? '#d982ff');
           g.fillRect(px, py, 1, 1);
         }
+      } else if (fx.type === 'abyssalRift') {
+        drawAbyssalRift(this.ctx, {
+          kind: 'floor',
+          x: metrics.ground.x,
+          groundY: 146,
+          phase: (now / 2400) + (fx.phaseOffset ?? 0),
+          openness: 1,
+          reducedMotion: Boolean(fx.reducedMotion || this.settings.reducedMotion),
+          width: 320,
+          height: 180,
+        });
+      } else if (fx.type === 'abyssalPulse') {
+        const pt = resolvePt(fx.anchor ?? 'chest', fx.part);
+        if (pt) {
+          const r = Math.max(4, Math.round((fx.rx ?? 12) * (0.75 + 0.25 * Math.sin(now / 120))));
+          this.pixelCircle(pt.x, pt.y, r, fx.color ?? '#42f5ff', false, 1);
+          this.pixelDiamond(pt.x, pt.y, 3, fx.color ?? '#42f5ff', '#ffffff');
+        }
+      } else if (fx.type === 'clawSlash') {
+        const pt = resolvePt(fx.anchor ?? 'weapon', fx.part);
+        if (pt) {
+          const p = Math.max(0, Math.min(1, fx.progress ?? 0.5));
+          const g = this.ctx;
+          for (let i = -1; i <= 1; i++) {
+            const sx = Math.round(pt.x - p * 14 + i * 3);
+            const sy = Math.round(pt.y - 6 + i * 4 + p * 8);
+            g.fillStyle = i === 0 ? (fx.coreColor ?? '#ffffff') : (fx.color ?? '#5ceeff');
+            g.fillRect(sx, sy, 8, 2);
+          }
+        }
+      }
+    }
+  }
+  isFloor90NetherActor(kind) {
+    return kind === 'nether_dread_lord' || NETHER_PILLAR_KINDS.includes(kind);
+  }
+  getNetherBossSealAnchor(pillarKind, bossMetrics) {
+    if (!bossMetrics) return null;
+    if (pillarKind === 'nether_leech_pillar') return bossMetrics.sealLeft ?? bossMetrics.chest;
+    if (pillarKind === 'nether_curse_pillar') return bossMetrics.sealCenter ?? bossMetrics.chest;
+    if (pillarKind === 'nether_doom_pillar') return bossMetrics.sealRight ?? bossMetrics.chest;
+    return bossMetrics.chest;
+  }
+  getNetherPillarSealAnchor(pillarMetrics) {
+    return pillarMetrics ? (pillarMetrics.seal ?? pillarMetrics.head ?? pillarMetrics.bodyCenter) : null;
+  }
+  drawNetherEncounterChains(positions, dead, playing, elapsed, now) {
+    const enemies = this.state?.enemies ?? [];
+    const bossIdx = enemies.findIndex(e => e.kind === 'nether_dread_lord');
+    if (bossIdx < 0) return;
+    const boss = enemies[bossIdx];
+    if (!resolveBossArt('nether_dread_lord', this.bossVisuals)) return;
+    const bossGone = dead ? dead.has(boss.id) : boss.hp <= 0;
+    if (bossGone) return;
+    const bossMetrics = this.getEnemyVisualMetrics(boss, positions[bossIdx], 146, 0);
+    if (!bossMetrics) return;
+    const reduced = Boolean(this.settings.reducedMotion);
+    for (let idx = 0; idx < enemies.length; idx++) {
+      const pillar = enemies[idx];
+      if (!NETHER_PILLAR_KINDS.includes(pillar.kind)) continue;
+      if (!resolveBossArt(pillar.kind, this.bossVisuals)) continue;
+      const pillarMetrics = this.getEnemyVisualMetrics(pillar, positions[idx], 146, 0);
+      if (!pillarMetrics) continue;
+      const from = this.getNetherBossSealAnchor(pillar.kind, bossMetrics);
+      const to = this.getNetherPillarSealAnchor(pillarMetrics);
+      if (!from || !to) continue;
+      const pillarGone = dead ? dead.has(pillar.id) : pillar.hp <= 0;
+      if (!pillarGone) {
+        drawNetherChain(this.ctx, { from, to, phase: reduced ? 0 : now / 1000, sag: 5, reducedMotion: reduced });
+      } else if (playing) {
+        const deathStart = this.deathStartMs?.[pillar.id];
+        if (deathStart !== undefined && elapsed >= deathStart && elapsed - deathStart < 450 && !(this.activeEvent?.type === 'boss-phase' && this.activeEvent?.sourceKind === 'nether_dread_lord')) {
+          const bp = Math.max(0, Math.min(0.999, (elapsed - deathStart) / 450));
+          drawNetherChain(this.ctx, { from, to, breakProgress: bp, phase: bp, sag: 5, reducedMotion: reduced });
+          drawNetherCombat(this.ctx, {
+            kind: 'pillar-break',
+            source: pillarMetrics.bodyCenter,
+            ground: pillarMetrics.ground,
+            progress: bp,
+            reducedMotion: reduced,
+          });
+        }
       }
     }
   }
@@ -709,13 +874,15 @@ export class Battlefield {
     for (let i = 0; i < 9; i++) r(22 + i * 7, 146 + (i % 2 ? -4 : 5), 2, 2, C[5]);
     r(309, 10, 2, 28, C[3]); r(301, 16, 8, 2, C[3]); r(301, 18, 2, 5, C[3]);
   }
-  sprite(kind, x, baseline, frame, pose = 'idle', hitElement = null, progress = 0, alternate = false) {
+  sprite(kind, x, baseline, frame, pose = 'idle', hitElement = null, progress = 0, alternate = false, bossAnimContext = null) {
     const g = this.ctx;
     const boss = LARGE_BOSS_KINDS.has(kind);
     const originalKind = kind;
     kind = Object.hasOwn(middleSprites, kind) ? kind : (ENEMIES[kind]?.sprite ?? kind);
     const scale = boss ? 2 : 1;
-    const bob = this.settings.reducedMotion ? 0 : [0, -1, 0, 1][frame % 4];
+    const bossV2 = resolveBossArt(originalKind, this.bossVisuals);
+    const suppressBob = Boolean(bossV2 && this.isFloor90NetherActor(originalKind));
+    const bob = (this.settings.reducedMotion || suppressBob) ? 0 : [0, -1, 0, 1][frame % 4];
     const baseY = baseline - (boss ? 64 : 32) + bob;
     const left = Math.round(x - (boss ? 32 : 16));
     const r = (a, b, w, h, c) => { g.fillStyle = c; g.fillRect(left + a * scale, baseY + b * scale, w * scale, h * scale); };
@@ -724,7 +891,6 @@ export class Battlefield {
       g.fillStyle = C[4]; g.fillRect(x - width / 2, baseline - 3, width, 3);
       return;
     }
-    const bossV2 = resolveBossArt(originalKind, this.bossVisuals);
     if (bossV2) {
       const bounds = bossV2.opaqueBounds;
       const v2Scale = resolveBossScale(originalKind, bossV2, this.bossVisuals);
@@ -747,8 +913,74 @@ export class Battlefield {
         armor: this._bossArmor ?? null,
         grounded: Boolean(this._bossGrounded),
         reflecting: Boolean(this._bossReflecting),
+        ...(bossAnimContext ?? {}),
       });
-      drawBossArt(g, bossV2, v2Left, v2Top, v2Scale, anim.materialOverrides, anim.partStates);
+      const awakeningProg = originalKind === 'abyssal_cthulhu' && Number.isFinite(this._bossAwakeningProgress)
+        ? this._bossAwakeningProgress
+        : null;
+      if (awakeningProg !== null) {
+        drawAbyssalRift(g, {
+          kind: 'awakening',
+          progress: awakeningProg,
+          x: Math.round(x),
+          groundY: baseline,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+          width: 320,
+          height: 180,
+        });
+        const spriteRect = {
+          x: Math.round(v2Left + bounds.minX * v2Scale),
+          y: Math.round(v2Top + bounds.minY * v2Scale),
+          w: Math.max(1, Math.round(bounds.width * v2Scale)),
+          h: Math.max(1, Math.round(bounds.height * v2Scale)),
+        };
+        const rev = revealState(awakeningProg, spriteRect, { reducedMotion: Boolean(this.settings.reducedMotion) });
+        if (rev.silhouette && rev.reveal < 1) {
+          const silOverrides = Object.fromEntries(Object.keys(bossV2.colors).map(m => [m, RIFT_PALETTE.void]));
+          drawBossArt(g, bossV2, v2Left, v2Top, v2Scale, silOverrides, anim.partStates);
+        }
+        if (rev.clip.h > 0) {
+          g.save();
+          g.beginPath();
+          g.rect(rev.clip.x, rev.clip.y, rev.clip.w, rev.clip.h);
+          g.clip();
+          drawBossArt(g, bossV2, v2Left, v2Top, v2Scale, anim.materialOverrides, anim.partStates);
+          g.restore();
+        }
+        drawAbyssalArrivalPulse(g, awakeningProg, {
+          x: Math.round(x),
+          groundY: baseline,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+          width: 320,
+          height: 180,
+        });
+      } else {
+        drawBossArt(g, bossV2, v2Left, v2Top, v2Scale, anim.materialOverrides, anim.partStates);
+      }
+      if (originalKind === 'abyssal_cthulhu' && Number.isFinite(this._bossConductivityProgress)) {
+        const bodyPart = bossV2.parts?.cthulhuBody;
+        const ps = anim.partStates?.cthulhuBody;
+        const fCount = bodyPart?.frames?.length ?? 0;
+        const fIdx = fCount ? (((Math.floor(ps?.frame ?? 0) % fCount) + fCount) % fCount) : 0;
+        const frameArt = bodyPart ? bodyPart.frames[fIdx] : bossV2;
+        const partLeft = bodyPart ? Math.round(v2Left + (bodyPart.anchor.x - bodyPart.joint.x) * v2Scale) + Math.round(ps?.dx ?? 0) : v2Left;
+        const partTop = bodyPart ? Math.round(v2Top + (bodyPart.anchor.y - bodyPart.joint.y) * v2Scale) + Math.round(ps?.dy ?? 0) : v2Top;
+        const condBounds = {
+          x: Math.round(v2Left + bounds.minX * v2Scale) + Math.round(ps?.dx ?? 0),
+          y: Math.round(v2Top + bounds.minY * v2Scale) + Math.round(ps?.dy ?? 0),
+          width: Math.max(1, Math.round(bounds.width * v2Scale)),
+          height: Math.max(1, Math.round(bounds.height * v2Scale)),
+        };
+        const isOpaque = (lx, ly) => {
+          const px = Math.floor((lx - partLeft) / v2Scale);
+          const py = Math.floor((ly - partTop) / v2Scale);
+          return Boolean(frameArt.pixels?.[py]?.[px]);
+        };
+        drawCthulhuConductivity(g, this._bossConductivityProgress, condBounds, {
+          isOpaque,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+        });
+      }
       return;
     }
     const palette = originalKind === 'wizard' ? C : (alternate ? this.alternateEnemyPalette : this.enemyPalette) ?? C;
@@ -1068,13 +1300,58 @@ export class Battlefield {
     this.pixelDiamond(orbX, orbY, orbR, color, C[9]);
   }
 
-  drawSummonSprite(summon, x, baseline, frame, event, progress, deferHealth = false) {
+  prepareSummonAttackPoseForEvent(summon, x, baseline, frame, event, progress, targetX, targetY = 124) {
+    const type = event?.type;
+    const attackEvent = type === 'summon_strike' || type === 'summon_counter'
+      || (type === 'summon_relay' && event.amount > 0);
+    if (!this.summonVisuals?.summonAttackV2 || !attackEvent || !event.target
+      || !Number.isFinite(targetX) || !this.state?.enemies?.some(enemy => enemy.id === event.target)
+      || (event.creature && event.creature !== summon?.creatureId)) return null;
+    const art = resolveSummonArt(summon.creatureId, this.summonVisuals);
+    if (!art?.pixels) return null;
+    const grand = Boolean(summon.isGrand);
+    const scale = resolveCreatureScale(summon.creatureId, grand, art, this.summonVisuals);
+    const bob = this.settings.reducedMotion ? 0 : [0, -1, 0, 1][frame % 4];
+    const height = Math.round(art.height * scale);
+    const lift = Math.min(Math.round(art.lift * scale), Math.max(0, baseline - height - 6));
+    const top = baseline - height - lift + (lift ? bob : 0);
+    return prepareSummonAttackPose({
+      creatureId: summon.creatureId, art,
+      left: x - Math.floor(art.width * scale / 2), top, scale,
+      groundX: x, groundY: baseline, grand, progress,
+      kind: type === 'summon_counter' ? 'counter' : event.relay ? 'relay' : 'strike',
+      reducedMotion: this.settings.reducedMotion,
+      targetX, targetY, canvasWidth: this.ctx.canvas?.width ?? this.canvas?.width ?? 320,
+      blocked: Boolean(event.blocked),
+    });
+  }
+
+  prepareSummonIdlePoseForEvent(summon, art, geometry, event, progress, timeMs) {
+    if (!this.summonVisuals?.summonIdleV2 || !summon || !art?.pixels) return null;
+    const type = event?.type;
+    const activeSummonAnimation = type === 'summon' || type === 'summon_invoke'
+      || type === 'summon_strike' || type === 'summon_counter' || type === 'summon_relay'
+      || type === 'summon_hit' || type === 'summon_break' || type === 'summon_depart'
+      || type === 'summon_rebirth'
+      || (type === 'attack' && event.target === 'summon' && (progress || 0) >= 0.62);
+    if (activeSummonAnimation) return null;
+    return prepareSummonIdlePose({
+      creatureId: summon.creatureId, art,
+      left: geometry.left, top: geometry.top, scale: geometry.scale,
+      groundX: geometry.groundX, groundY: geometry.groundY, grand: Boolean(summon.isGrand),
+      timeMs, reducedMotion: this.settings.reducedMotion,
+      canvasWidth: this.ctx.canvas?.width ?? this.canvas?.width ?? 320,
+      canvasHeight: this.ctx.canvas?.height ?? this.canvas?.height ?? 180,
+    });
+  }
+
+  drawSummonSprite(summon, x, baseline, frame, event, progress, deferHealth = false, targetX = null, targetY = 124, timeMs = performance.now()) {
     const g = this.ctx;
     const summonBeingHit = event && (
       event.type === 'summon_hit'
       || (event.type === 'attack' && event.target === 'summon' && (progress || 0) >= 0.62)
     );
-    const lunge = (event && (event.type === 'summon_strike' || event.type === 'summon_relay') && !this.settings.reducedMotion)
+    const legacyLunge = (event && (event.type === 'summon_strike' || event.type === 'summon_relay') && !this.settings.reducedMotion)
       ? Math.round(Math.sin((progress || 0) * Math.PI) * 16)
       : (event && event.type === 'summon_counter' && !this.settings.reducedMotion)
         ? Math.round(Math.sin((progress || 0) * Math.PI) * 8)
@@ -1084,8 +1361,11 @@ export class Battlefield {
     const cid = summon.creatureId;
     const art = resolveSummonArt(cid, this.summonVisuals);
     const grand = Boolean(art && summon.isGrand);
+    const attackPose = Battlefield.prototype.prepareSummonAttackPoseForEvent.call(this, summon, x, baseline, frame, event, progress, targetX, targetY);
+    const lunge = attackPose ? 0 : legacyLunge;
     let scale = resolveCreatureScale(cid, grand, art, this.summonVisuals);
-    if (grand && event?.type === 'summon_invoke' && !this.settings.reducedMotion) {
+    const invokeActive = Boolean(art && this.summonVisuals?.invokeV2 && event?.type === 'summon_invoke');
+    if (!invokeActive && grand && event?.type === 'summon_invoke' && !this.settings.reducedMotion) {
       const time = Math.max(0, Math.min(1, progress ?? 0));
       const pulse = Math.min(time / 0.28, (1 - time) / 0.72);
       const smooth = pulse * pulse * (3 - 2 * pulse);
@@ -1099,6 +1379,16 @@ export class Battlefield {
     const artHeight = art ? Math.round(art.height * scale) : 0;
     const lift = art ? Math.min(Math.round(art.lift * scale), Math.max(0, baseline - artHeight - 6)) : 0;
     const artTop = art ? baseline - artHeight - lift + (lift ? bob : 0) : null;
+    const idleArtTop = art ? baseline - artHeight - lift : null;
+    const artLeft = art ? sx - Math.floor(art.width * scale / 2) : sx;
+    const idlePose = art ? Battlefield.prototype.prepareSummonIdlePoseForEvent.call(this, summon, art, {
+      left: artLeft, top: idleArtTop, scale, groundX: sx, groundY: baseline,
+    }, event, progress, timeMs) : null;
+    const posedArt = attackPose?.art ?? idlePose?.art ?? art;
+    const renderArt = posedArt;
+    const renderLeft = attackPose?.left ?? idlePose?.left ?? artLeft;
+    const renderTop = attackPose?.top ?? idlePose?.top ?? artTop;
+    const renderScale = attackPose?.scale ?? idlePose?.scale ?? scale;
     const elemImpact = ELEMENT_IMPACT[elem] || null;
     const fusion = fusionSummonPalette(elem, this.summonVisuals);
     const bodyColor = fusion?.shadow ?? elemImpact?.secondary ?? C[12];
@@ -1106,11 +1396,29 @@ export class Battlefield {
     const coreColor = fusion?.core ?? elemImpact?.core ?? C[31];
     const rimColor = fusion?.rim ?? elemImpact?.rim ?? C[30];
 
+    const invoke = invokeActive ? prepareSummonInvokeV2({
+      element: elem, art, left: artLeft, top: artTop,
+      scale, groundX: sx, groundY: baseline, grand, progress, reducedMotion: this.settings.reducedMotion,
+    }) : null;
+    // E2: optional summon-only aura, independent from fusionVisuals and body palettes.
+    const auraV2 = this.summonVisuals?.aura !== false && this.summonVisuals?.auraV2 && art
+      ? prepareSummonAuraV2({
+        element: elem, art: renderArt, left: renderLeft, top: renderTop,
+        scale: renderScale, groundX: attackPose?.groundX ?? idlePose?.groundX ?? sx, groundY: baseline, grand,
+        timeMs: this.summonVisuals?.previewTime ?? performance.now(),
+        reducedMotion: this.settings.reducedMotion, intensity: invoke?.auraMix ?? 1,
+      }) : null;
+
     // Summon shadow and aura
     const auraRadius = art ? Math.round(art.width * scale * (lift ? 0.31 : 0.43)) : 12;
     g.fillStyle = C[0];
     g.fillRect(sx - auraRadius, baseline - 1, auraRadius * 2, 3);
-    if (this.summonVisuals?.aura !== false) {
+    drawSummonInvokeLayerV2(g, invoke, 'ground');
+    drawSummonInvokeLayerV2(g, invoke, 'rear');
+    if (auraV2) {
+      drawSummonAuraLayerV2(g, auraV2, 'ground');
+      drawSummonAuraLayerV2(g, auraV2, 'rear');
+    } else if (!invoke && this.summonVisuals?.aura !== false) {
       const auraColor = fusion?.aura ?? elementColor[elem] ?? C[28];
       this.pixelEllipse(sx, baseline - 1, auraRadius, 3, auraColor, false);
       if (grand) this.pixelEllipse(sx, baseline - 1, auraRadius + 3, 5, rimColor, false);
@@ -1128,8 +1436,15 @@ export class Battlefield {
     }
 
     if (art) {
-      drawSummonArt(g, art, sx - Math.floor(art.width * scale / 2), artTop, scale,
-        fusion ?? fusedSummonPalettes.get(elem) ?? elemImpact, this.summonVisuals?.marks);
+      const bodyPalette = this.summonVisuals?.bodyPaletteV2 ? summonBodyPalettes.get(elem) : undefined;
+      const productionFusion = this.summonVisuals?.creaturePaletteV2 ? fusionSummonPalettesV2.get(elem) : undefined;
+      const palette = bodyPalette ?? fusion ?? productionFusion ?? fusedSummonPalettes.get(elem) ?? elemImpact;
+      const sourceArt = attackPose?.art.attackPoseSource ?? idlePose?.art.idlePoseSource ?? renderArt;
+      const sourceMark = palette ? elementVariantFor(sourceArt, palette).mark : null;
+      const mark = attackPose && sourceMark ? mapSummonAttackMark(renderArt, sourceMark)
+        : idlePose?.art.idleSourceMap && sourceMark ? mapSummonIdleMark(renderArt, sourceMark) : null;
+      drawSummonInvokeBodyV2(g, invoke, () => drawSummonArt(g, renderArt, renderLeft, renderTop, renderScale,
+        palette, this.summonVisuals?.marks, mark));
     } else if (cid === 'bird') {
       r(13, 5 + bob, 6, 6, bodyColor);
       r(19, 7 + bob, 4, 2, rimColor);
@@ -1201,11 +1516,23 @@ export class Battlefield {
       r(17, 10 + bob, 3, 8, bodyColor);
     }
 
+    if (auraV2) {
+      drawSummonAuraLayerV2(g, auraV2, 'rim');
+      drawSummonAuraLayerV2(g, auraV2, 'foreground');
+      drawSummonAuraLayerV2(g, auraV2, 'particles');
+    }
+
+    drawSummonInvokeLayerV2(g, invoke, 'front');
     const drawHealth = () => {
+      if (invoke && invoke.reveal < 0.8) return;
       const hpRatio = Math.max(0, Math.min(1, summon.hp / Math.max(1, summon.maxHp)));
-      const barW = art ? Math.min(32, Math.max(20, Math.round(art.width * scale * 0.65))) : 20;
-      const barX = sx - Math.floor(barW / 2);
-      const barY = artTop === null ? baseline - 28 + bob : Math.max(5, artTop - 5);
+      const hudArt = idlePose ? art : renderArt;
+      const hudScale = idlePose ? scale : renderScale;
+      const hudLeft = idlePose ? artLeft : renderLeft;
+      const hudTop = idlePose ? artTop : renderTop;
+      const barW = hudArt ? Math.min(32, Math.max(20, Math.round(hudArt.width * hudScale * 0.65))) : 20;
+      const barX = hudArt ? Math.round(hudLeft + (hudArt.width * hudScale - barW) / 2) : sx - Math.floor(barW / 2);
+      const barY = hudTop === null ? baseline - 28 + bob : Math.max(5, hudTop - 5);
       const fillW = hpRatio > 0 ? Math.max(1, Math.round(barW * hpRatio)) : 0;
       const fillColor = hpRatio > 0.5 ? C[26] : hpRatio > 0.25 ? C[30] : C[18];
       g.fillStyle = C[0]; g.fillRect(barX - 1, barY - 1, barW + 2, 4);
@@ -1275,6 +1602,12 @@ export class Battlefield {
     const snap = playing && this.snapshots?.[eventIndex] ? this.snapshots[eventIndex] : null;
     const dead = snap ? snap.dead : null;
     const positions = snap ? snap.positions : this.positions();
+    const attackTargetIndex = event?.target ? this.state?.enemies?.findIndex(enemy => enemy.id === event.target) ?? -1 : -1;
+    const attackTargetX = attackTargetIndex >= 0 ? positions[attackTargetIndex] : null;
+    const attackTargetMetrics = attackTargetIndex >= 0
+      ? this.getEnemyVisualMetrics(this.state.enemies[attackTargetIndex], attackTargetX, 146, 0)
+      : null;
+    const attackTargetY = attackTargetMetrics?.bodyCenter?.y ?? 124;
     const eventTargetIndex = this.state?.enemies.findIndex(enemy => enemy.id === (event?.target || event?.source));
     const eventX = positions[eventTargetIndex] ?? 230;
     const blastX = this.blastX(event, this.state?.enemies[eventTargetIndex], eventX);
@@ -1317,7 +1650,7 @@ export class Battlefield {
     const grandBehindActors = showSummon && activeSummon.isGrand
       && Object.hasOwn(SUMMON_ART, activeSummon.creatureId);
     const drawGrandHealth = grandBehindActors
-      ? this.drawSummonSprite(activeSummon, summonAnchor.x, summonAnchor.baseline, frame, event, progress, true) : null;
+      ? this.drawSummonSprite(activeSummon, summonAnchor.x, summonAnchor.baseline, frame, event, progress, true, attackTargetX, attackTargetY, now) : null;
 
     const isCastingEvent = ['projectile', 'shield', 'shield-delay', 'heal', 'blast', 'fizzle', 'blackhole-open', 'timestop', 'ascension', 'summon', 'summon_invoke'].includes(event?.type)
       || (event?.type === 'damage' && event.element === 'death');
@@ -1375,13 +1708,24 @@ export class Battlefield {
     }
 
     if (showSummon && !grandBehindActors) {
-      this.drawSummonSprite(activeSummon, summonAnchor.x, summonAnchor.baseline, frame, event, progress);
+      this.drawSummonSprite(activeSummon, summonAnchor.x, summonAnchor.baseline, frame, event, progress, false, attackTargetX, attackTargetY, now);
     }
 
+    const renderNetherPhase = snap ? (snap.netherPhase ?? 1) : (this.state?.netherPhase ?? 1);
+    const netherBossActor = this.state?.enemies?.find(e => e.kind === 'nether_dread_lord');
+    const renderNetherPurged = snap
+      ? Boolean(snap.netherPurged)
+      : Boolean(netherBossActor && (netherBossActor.netherPurgeUntil ?? 0) >= (this.state?.turn ?? 0));
     const orderedEnemies = this.state ? this.state.enemies
       .map((enemy, index) => ({ enemy, index, rear: resolveBossLayer(enemy.kind, this.bossVisuals) === 'rear' ? 0 : 1 }))
       .sort((a, b) => a.rear - b.rear || a.index - b.index) : [];
-    orderedEnemies.forEach(({ enemy, index }) => {
+    let netherChainsDrawn = false;
+    orderedEnemies.forEach(({ enemy, index, rear }) => {
+      if (!netherChainsDrawn && rear === 1) {
+        netherChainsDrawn = true;
+        this.activeEvent = event;
+        this.drawNetherEncounterChains(positions, dead, playing, elapsed, now);
+      }
       const alternateArt = this.alternateEnemyIds?.has(enemy.id);
       const x = positions[index];
       let moveSlot;
@@ -1401,7 +1745,7 @@ export class Battlefield {
           : spearBackLanded
             ? event.pierceHit.damage
             : (!event?.pierceHit && impact && event?.target === enemy.id ? event.damage : null);
-      const gone = enemy.hp <= 0 || Boolean(dead?.has(enemy.id)) || Boolean(landed?.killed);
+      const gone = (snap ? Boolean(dead?.has(enemy.id)) : enemy.hp <= 0) || Boolean(landed?.killed);
       g.fillStyle = C[0]; g.fillRect(x - 14, 146, 28, 3);
       const hurt = (event?.type === 'damage' && event.target === enemy.id && event.amount > 0)
         || Boolean(landed?.amount)
@@ -1413,11 +1757,12 @@ export class Battlefield {
           : (event?.element ?? 'fire');
       const attacking = event?.type === 'attack' && event.source === enemy.id;
       const charging = event?.type === 'charge' && event.source === enemy.id;
-      const lunge = attacking && !this.settings.reducedMotion ? [0, -6, -14, -4][Math.min(3, Math.floor(progress * 4))] : 0;
+      const isFloor90V2 = Boolean(resolveBossArt(enemy.kind, this.bossVisuals) && this.isFloor90NetherActor(enemy.kind));
+      const lunge = (attacking && !this.settings.reducedMotion && !isFloor90V2) ? [0, -6, -14, -4][Math.min(3, Math.floor(progress * 4))] : 0;
       const deathStart = this.deathStartMs?.[enemy.id];
       const deathFrame = playing && deathStart !== undefined ? Math.max(0, Math.min(3, Math.floor((elapsed - deathStart) / 260 * 4))) : 3;
 
-      const v2Bob = this.settings.reducedMotion ? 0 : [0, -1, 0, 1][frame % 4];
+      const v2Bob = (this.settings.reducedMotion || isFloor90V2) ? 0 : [0, -1, 0, 1][frame % 4];
       const v2Metrics = this.getEnemyVisualMetrics(enemy, movingX + lunge, 146, v2Bob);
 
       if (!gone && this.target === enemy.id) {
@@ -1468,6 +1813,27 @@ export class Battlefield {
       const bossV2Art = !gone && v2Metrics ? resolveBossArt(enemy.kind, this.bossVisuals) : null;
       const bossGrounded = Boolean(enemy.groundedUntil >= (this.state?.turn ?? 0));
       const bossReflecting = Boolean(event?.type === 'storm-static' && event.source === enemy.id);
+      const bossSupporting = Boolean(
+        (event?.type === 'ward-grant-all' || event?.type === 'ward-grant' || event?.type === 'heal') && event.source === enemy.id,
+      );
+      const bossShocked = Boolean(
+        enemy.abyssalShockUntil >= (this.state?.turn ?? 0)
+        || (event?.type === 'armor-shred' && event.target === enemy.id),
+      );
+      const bossAnimContext = enemy.kind === 'nether_dread_lord'
+        ? {
+          netherPhase: renderNetherPhase,
+          unsealed: renderNetherPhase === 2,
+          purged: renderNetherPurged,
+          supporting: bossSupporting,
+          charging,
+          attacking,
+          hurt,
+          now,
+        }
+        : NETHER_PILLAR_KINDS.includes(enemy.kind)
+          ? { supporting: bossSupporting, charging, attacking, hurt, now }
+          : null;
       if (bossV2Art) {
         const v2Anim = evaluateBossAnimation(bossV2Art, {
           frame,
@@ -1479,9 +1845,14 @@ export class Battlefield {
           attacking,
           charging,
           hurt,
+          supporting: bossSupporting,
+          shocked: bossShocked,
+          selfHeal: event?.selfHeal ?? 0,
+          ultimate: Boolean(event?.ultimate),
           armor: enemy.armor,
           grounded: bossGrounded,
           reflecting: bossReflecting,
+          ...(bossAnimContext ?? {}),
         });
         this.drawBossLocalEffects(v2Anim.effects, v2Metrics, now, v2Anim.partStates);
       }
@@ -1489,7 +1860,16 @@ export class Battlefield {
       this._bossArmor = enemy.armor;
       this._bossGrounded = bossGrounded;
       this._bossReflecting = bossReflecting;
-      this.sprite(enemy.kind, spriteX, 146, gone ? deathFrame : frame, pose, hurt ? hurtElement : null, artProgress, alternateArt);
+      const conductivityActive = enemy.kind === 'abyssal_cthulhu' && !gone && (
+        (event?.type === 'armor-shred' && event.target === enemy.id)
+        || (hurt && hurtElement === 'lightning')
+      );
+      this._bossConductivityProgress = conductivityActive ? Math.max(0, Math.min(0.999, progress)) : null;
+      const awakeningActive = enemy.kind === 'abyssal_cthulhu' && !gone && event?.type === 'boss-phase' && event.sourceKind === 'abyssal_cthulhu';
+      this._bossAwakeningProgress = awakeningActive ? Math.max(0, Math.min(0.999, fraction)) : null;
+      this.sprite(enemy.kind, spriteX, 146, gone ? deathFrame : frame, pose, hurt ? hurtElement : null, artProgress, alternateArt, bossAnimContext);
+      this._bossAwakeningProgress = null;
+      this._bossConductivityProgress = null;
       this._bossArmor = null;
       this._bossGrounded = false;
       this._bossReflecting = false;
@@ -1612,7 +1992,23 @@ export class Battlefield {
         const targetIndex = this.state.enemies.findIndex(enemy => enemy.id === event.target);
         const targetX = positions[targetIndex] ?? x;
         const label = event.type === 'seal' ? 'ติดผนึก' : 'ม่านเทิร์นหน้า';
-        if (!this.settings.reducedMotion && event.type !== 'ward-grant') this.drawModifierVfx(event.type, targetX, 120, fraction, true);
+        const netherKind = event.type === 'ward-grant' && resolveBossArt('nether_dread_lord', this.bossVisuals)
+          ? netherEventKind(event, id => this.state.enemies.find(e => e.id === id)?.kind ?? null)
+          : null;
+        if (netherKind === 'ward-transfer') {
+          const srcIdx = this.state.enemies.findIndex(e => e.id === event.source);
+          const srcMetrics = srcIdx >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[srcIdx], positions[srcIdx], 146, 0) : null;
+          const dstMetrics = targetIndex >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[targetIndex], targetX, 146, 0) : null;
+          drawNetherCombat(g, {
+            kind: 'ward-transfer',
+            source: srcMetrics?.head ?? { x: positions[srcIdx] ?? x, y: 112 },
+            target: dstMetrics?.chest ?? { x: targetX, y: 96 },
+            progress: fraction,
+            reducedMotion: Boolean(this.settings.reducedMotion),
+          });
+        } else if (!this.settings.reducedMotion && event.type !== 'ward-grant') {
+          this.drawModifierVfx(event.type, targetX, 120, fraction, true);
+        }
         this.barrierLabel(targetX, 94, label, '#d6a2ff');
       }
       if (event.type === 'projectile') {
@@ -1826,8 +2222,25 @@ export class Battlefield {
 
       if (event.type === 'heal') {
         const px = event.target === 'player' ? 51 : x;
-        this.drawHealVfx(px, 146, fraction, now, event);
-        if (event.source === 'player' && !this.settings.reducedMotion) this.drawHealingSigil(px, 146, fraction, event.healKind, vfxScale(event));
+        const netherHealKind = resolveBossArt('nether_dread_lord', this.bossVisuals)
+          ? netherEventKind(event, id => this.state.enemies.find(e => e.id === id)?.kind ?? null)
+          : null;
+        if (netherHealKind === 'soul-transfer' || netherHealKind === 'soul-drain') {
+          const srcIdx = this.state.enemies.findIndex(e => e.id === event.source);
+          const dstIdx = this.state.enemies.findIndex(e => e.id === event.target);
+          const srcMetrics = srcIdx >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[srcIdx], positions[srcIdx], 146, 0) : null;
+          const dstMetrics = dstIdx >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[dstIdx], positions[dstIdx], 146, 0) : null;
+          drawNetherCombat(g, {
+            kind: netherHealKind,
+            source: netherHealKind === 'soul-drain' ? { x: 51, y: 120 } : (srcMetrics?.head ?? { x: positions[srcIdx] ?? x, y: 114 }),
+            target: dstMetrics?.chest ?? { x: px, y: 96 },
+            progress: fraction,
+            reducedMotion: Boolean(this.settings.reducedMotion),
+          });
+        } else {
+          this.drawHealVfx(px, 146, fraction, now, event);
+          if (event.source === 'player' && !this.settings.reducedMotion) this.drawHealingSigil(px, 146, fraction, event.healKind, vfxScale(event));
+        }
         const healEdge = event.healKind === 'grand' ? C[31] : event.source !== 'player' ? C[22] : C[26];
         if (!this.hpNumbersInHud) this.drawFloatingPopup(px, 96 - Math.round(fraction * 12), `+${event.amount} HP`, C[9], healEdge);
       }
@@ -1913,27 +2326,46 @@ export class Battlefield {
               this.pixelDiamond(Math.round(cx + Math.cos(ang) * d), Math.round(120 + Math.sin(ang) * d), 3, isReborn ? C[30] : C[23], C[9]);
             }
           } else if (isNether) {
-            const surgeH = Math.round(wave * 48);
-            if (surgeH > 2) {
-              g.fillStyle = C[20]; g.fillRect(0, 150 - surgeH, 320, surgeH);
-              g.fillStyle = C[18]; g.fillRect(0, 150 - Math.round(surgeH * 0.65), 320, Math.round(surgeH * 0.45));
-              g.fillStyle = C[23]; g.fillRect(0, 150 - surgeH, 320, 3);
-              g.fillStyle = C[31]; g.fillRect(0, 150 - surgeH + 1, 320, 1);
+            const netherPhaseKind = resolveBossArt('nether_dread_lord', this.bossVisuals)
+              ? netherEventKind(event, id => this.state.enemies.find(e => e.id === id)?.kind ?? null)
+              : null;
+            if (netherPhaseKind === 'broken-seal' || netherPhaseKind === 'sacrifice') {
+              const bossIdx = this.state.enemies.findIndex(e => e.kind === 'nether_dread_lord');
+              const bossMetrics = bossIdx >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[bossIdx], positions[bossIdx], 146, 0) : null;
+              const pillarIds = netherPhaseKind === 'sacrifice'
+                ? (Array.isArray(event.sacrificedIds) ? event.sacrificedIds : [])
+                : (snap?.lastBrokenPillarId ? [snap.lastBrokenPillarId] : []);
+              const pillars = pillarIds.map(pid => {
+                const pIdx = this.state.enemies.findIndex(e => e.id === pid);
+                if (pIdx < 0) return null;
+                const pillar = this.state.enemies[pIdx];
+                const pMetrics = this.getEnemyVisualMetrics(pillar, positions[pIdx], 146, 0);
+                const from = this.getNetherBossSealAnchor(pillar.kind, bossMetrics);
+                const to = this.getNetherPillarSealAnchor(pMetrics);
+                return from && to ? { id: pid, from, to } : null;
+              }).filter(Boolean);
+              drawNetherCombat(g, {
+                kind: netherPhaseKind,
+                source: bossMetrics?.chest ?? { x: positions[bossIdx] ?? 226, y: 96 },
+                ground: bossMetrics?.ground ?? { x: positions[bossIdx] ?? 226, y: 146 },
+                pillars,
+                progress: fraction,
+                reducedMotion: Boolean(this.settings.reducedMotion),
+              });
+            } else {
+              const surgeH = Math.round(wave * 48);
+              if (surgeH > 2) {
+                g.fillStyle = C[20]; g.fillRect(0, 150 - surgeH, 320, surgeH);
+                g.fillStyle = C[18]; g.fillRect(0, 150 - Math.round(surgeH * 0.65), 320, Math.round(surgeH * 0.45));
+                g.fillStyle = C[23]; g.fillRect(0, 150 - surgeH, 320, 3);
+                g.fillStyle = C[31]; g.fillRect(0, 150 - surgeH + 1, 320, 1);
+              }
+              this.drawDeathVfx(160, 122, fraction, now);
+              this.pixelCircle(160, 122, Math.round(14 + fraction * 48), C[18], false, 2);
+              this.pixelCircle(160, 122, Math.round(8 + fraction * 32), C[23], false, 1);
             }
-            this.drawDeathVfx(160, 122, fraction, now);
-            this.pixelCircle(160, 122, Math.round(14 + fraction * 48), C[18], false, 2);
-            this.pixelCircle(160, 122, Math.round(8 + fraction * 32), C[23], false, 1);
-          } else {
-            const tideH = Math.round(wave * 44);
-            if (tideH > 2) {
-              g.fillStyle = C[24]; g.fillRect(0, 150 - tideH, 320, tideH);
-              g.fillStyle = C[25]; g.fillRect(0, 150 - Math.round(tideH * 0.7), 320, Math.round(tideH * 0.5));
-              g.fillStyle = C[27]; g.fillRect(0, 150 - tideH, 320, 3);
-              g.fillStyle = C[9]; g.fillRect(0, 150 - tideH + 1, 320, 1);
-            }
+          } else if (event.sourceKind !== 'abyssal_cthulhu') {
             this.drawElementalImpactFlash(208, 126, 'water', fraction, 1.8);
-            this.pixelCircle(208, 126, Math.round(12 + fraction * 42), C[27], false, 2);
-            this.pixelCircle(208, 126, Math.round(6 + fraction * 28), C[9], false, 1);
           }
         }
         const phasePopup = isEternity
@@ -1942,7 +2374,7 @@ export class Battlefield {
             : '🌌 เฟส 2: ร่างปฏิพากย์สลับธาตุ!')
           : isNether
             ? (event.mode === 'broken' ? '🔥 พันธสัญญาสามเสาแตก!' : '💀 จอมอสูรปลดผนึก!')
-            : '🐙 มหาคราเค่นปรากฏร่างจริง!';
+            : '🐙 มหาเทพอสูรแห่งห้วงบาดาลปรากฏร่างจริง!';
         const phaseFg = isEternity ? C[9] : isNether ? C[31] : C[9];
         const phaseEdge = isEternity ? C[22] : isNether ? C[18] : C[25];
         this.drawFloatingPopup(160, 72 - Math.round(fraction * 10), phasePopup, phaseFg, phaseEdge);
@@ -1989,17 +2421,42 @@ export class Battlefield {
       }
 
       if (event.type === 'nether-curse') {
-        const travel = Math.min(1, fraction / 0.65);
-        const rx = Math.round(x + (51 - x) * travel);
-        const ry = Math.round(112 - Math.sin(travel * Math.PI) * 16);
-        this.pixelCircle(rx, ry, 6, C[20], true);
-        this.pixelDiamond(rx, ry, 4, C[18], C[23]);
-        if (impact) {
-          this.drawDeathVfx(51, 122, Math.min(1, (fraction - 0.55) / 0.45), now);
-          if (!this.hpNumbersInHud || !event.amount) {
+        const netherCurseV2 = resolveBossArt('nether_dread_lord', this.bossVisuals)
+          && netherEventKind(event, id => this.state.enemies.find(e => e.id === id)?.kind ?? null) === 'curse-mark';
+        if (netherCurseV2) {
+          drawNetherCombat(g, {
+            kind: 'curse-mark',
+            target: { x: 51, y: 120 },
+            progress: fraction,
+            reducedMotion: Boolean(this.settings.reducedMotion),
+          });
+          if (impact && (!this.hpNumbersInHud || !event.amount)) {
             this.drawFloatingPopup(51, 90 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `💀 คำสาปห้ามซ้ำ −${event.amount} HP` : '💀 คำสาปติดโล่!', C[23], C[18]);
           }
+        } else {
+          const travel = Math.min(1, fraction / 0.65);
+          const rx = Math.round(x + (51 - x) * travel);
+          const ry = Math.round(112 - Math.sin(travel * Math.PI) * 16);
+          this.pixelCircle(rx, ry, 6, C[20], true);
+          this.pixelDiamond(rx, ry, 4, C[18], C[23]);
+          if (impact) {
+            this.drawDeathVfx(51, 122, Math.min(1, (fraction - 0.55) / 0.45), now);
+            if (!this.hpNumbersInHud || !event.amount) {
+              this.drawFloatingPopup(51, 90 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `💀 คำสาปห้ามซ้ำ −${event.amount} HP` : '💀 คำสาปติดโล่!', C[23], C[18]);
+            }
+          }
         }
+      }
+      if (event.type === 'nether-purge' && resolveBossArt('nether_dread_lord', this.bossVisuals)) {
+        const bossIdx = this.state.enemies.findIndex(e => e.id === event.target);
+        const bossMetrics = bossIdx >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[bossIdx], positions[bossIdx], 146, 0) : null;
+        drawNetherCombat(g, {
+          kind: 'purge',
+          source: bossMetrics?.chest ?? { x: positions[bossIdx] ?? x, y: 96 },
+          element: event.element,
+          progress: fraction,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+        });
       }
 
       if (event.type === 'cosmic-echo') {
@@ -2049,6 +2506,21 @@ export class Battlefield {
       }
 
       if (event.type === 'charge') {
+        const netherChargeKind = resolveBossArt('nether_dread_lord', this.bossVisuals)
+          ? netherEventKind(event, id => this.state.enemies.find(e => e.id === id)?.kind ?? null)
+          : null;
+        if (netherChargeKind === 'frost-charge' || netherChargeKind === 'nether-charge') {
+          const srcIdx = this.state.enemies.findIndex(e => e.id === event.source);
+          const srcMetrics = srcIdx >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[srcIdx], positions[srcIdx], 146, 0) : null;
+          drawNetherCombat(g, {
+            kind: netherChargeKind,
+            source: netherChargeKind === 'frost-charge'
+              ? (srcMetrics?.seal ?? srcMetrics?.head ?? { x: positions[srcIdx] ?? x, y: 112 })
+              : (srcMetrics?.chest ?? { x: positions[srcIdx] ?? x, y: 96 }),
+            progress: fraction,
+            reducedMotion: Boolean(this.settings.reducedMotion),
+          });
+        }
         if (event.specialBoss) {
           const isStorm = event.sourceKind === 'tempest_archon' || event.sourceKind === 'thunder_drake_emperor';
           const isWater = event.sourceKind === 'abyssal_cthulhu';
@@ -2101,6 +2573,7 @@ export class Battlefield {
         const circleR = Math.round(14 + frac * 8);
         const sx = summonAnchor.x;
         const sb = summonAnchor.baseline;
+        if (!(this.summonVisuals?.invokeV2 && event.type === 'summon_invoke' && resolveSummonArt(event.creature, this.summonVisuals))) {
         this.pixelEllipse(sx, sb, circleR, Math.round(circleR * 0.35), aura, false);
         this.pixelEllipse(sx, sb, Math.max(4, circleR - 4), Math.max(2, Math.round((circleR - 4) * 0.35)), core, false);
         if (!this.settings.reducedMotion) {
@@ -2120,6 +2593,7 @@ export class Battlefield {
             this.pixelDiamond(px, py, 2, fusion?.spark ?? pal.core, aura);
           }
         }
+        }
         if (event.name || event.creature) {
           this.drawFloatingPopup(sx, sb - 39 - Math.round(frac * 16), `✨ อัญเชิญ ${event.name || event.creature}`, pal.core, pal.primary);
         }
@@ -2131,7 +2605,8 @@ export class Battlefield {
         const targetIndex = this.state.enemies.findIndex(e => e.id === event.target);
         const targetX = positions[targetIndex] ?? 180;
         const frac = this.settings.reducedMotion ? 1 : progress;
-        if (!this.settings.reducedMotion && frac > 0.25) {
+        const combatV2 = this.drawApprovedSummonCombatV2(event, activeSummon, summonAnchor, frame, targetX, attackTargetY, progress);
+        if (!combatV2 && !this.settings.reducedMotion && frac > 0.25) {
           const strikeFrac = (frac - 0.25) / 0.75;
           this.drawElementalImpactFlash(targetX, 124, elem, strikeFrac, 1.2);
           this.drawHitBurstVfx(targetX, 124, pal.primary, strikeFrac, elem, now, 1.2);
@@ -2160,7 +2635,8 @@ export class Battlefield {
         const targetIndex = this.state.enemies.findIndex(e => e.id === event.target);
         const targetX = positions[targetIndex] ?? 180;
         const frac = this.settings.reducedMotion ? 1 : progress;
-        if (!this.settings.reducedMotion) {
+        const combatV2 = this.drawApprovedSummonCombatV2(event, activeSummon, summonAnchor, frame, targetX, attackTargetY, progress);
+        if (!combatV2 && !this.settings.reducedMotion) {
           const fusion = fusionSummonPalette(elem, this.summonVisuals);
           this.pixelDiamond(summonAnchor.x, summonAnchor.baseline - 12, 3, fusion?.core ?? pal.core, fusion?.rim ?? pal.primary);
           if (frac > 0.2) {
@@ -2239,6 +2715,39 @@ export class Battlefield {
       this.stop();
       try { done?.(); } catch { /* Keep animation loop resilient */ }
     }
+  }
+
+  drawApprovedSummonCombatV2(event, activeSummon, summonAnchor, frame, targetX, targetY, progress) {
+    if (!this.summonVisuals?.summonCombatV2 || !activeSummon || !event.target
+      || !this.state?.enemies?.some(enemy => enemy.id === event.target)) return false;
+    const bounds = getSummonBounds(activeSummon, this.summonVisuals);
+    const counter = event.type === 'summon_counter';
+    const t = Math.max(0, Math.min(1, progress ?? 0));
+    const lunge = this.settings.reducedMotion ? 0 : Math.round(Math.sin(t * Math.PI) * (counter ? 8 : 16));
+    const pose = this.prepareSummonAttackPoseForEvent(activeSummon, summonAnchor.x, summonAnchor.baseline, frame, event, t, targetX, targetY);
+    const attackEnabled = Boolean(this.summonVisuals?.summonAttackV2);
+    if (attackEnabled && !pose) return false;
+    const element = activeSummon.element ?? event.element;
+    const fusion = fusionSummonPalette(element, this.summonVisuals);
+    const bodyPalette = this.summonVisuals?.bodyPaletteV2 ? summonBodyPalettes.get(element) : undefined;
+    const productionFusion = this.summonVisuals?.creaturePaletteV2 ? fusionSummonPalettesV2.get(element) : undefined;
+    const palette = bodyPalette ?? fusion ?? productionFusion ?? fusedSummonPalettes.get(element) ?? ELEMENT_IMPACT[element];
+    if (pose) {
+      drawSummonAttackAnatomy(this.ctx, pose, {
+        blocked: Boolean(event.blocked), damaging: event.amount > 0, palette,
+      });
+    }
+    const fxProgress = pose ? summonAttackFxProgress(t, counter ? 'counter' : event.relay ? 'relay' : 'strike') : t;
+    if (pose && fxProgress === null) return true;
+    return drawSummonCombatV2(this.ctx, {
+      element, sourceX: pose?.sourceX ?? Math.min(targetX - 22, bounds.left + Math.round(bounds.width * .86) + lunge),
+      sourceY: pose?.sourceY ?? bounds.top + Math.round(bounds.height * .55), targetX, targetY: pose?.targetY ?? targetY,
+      groundY: 146, grand: bounds.isGrand, progress: fxProgress ?? t,
+      kind: counter ? 'counter' : event.relay ? 'relay' : 'strike',
+      blocked: Boolean(event.blocked), damaging: event.amount > 0,
+      reducedMotion: this.settings.reducedMotion,
+      delivery: pose?.delivery ?? 'projectile', gesture: pose?.profile.type ?? '',
+    });
   }
 
   drawElementalImpactFlash(targetX, targetY, element = 'fire', fraction = 0, scale = 1) {
@@ -3523,7 +4032,41 @@ export class Battlefield {
 
     const hitsSummon = event.target === 'summon';
     const playerShieldHit = (event.playerAbsorbed ?? (hitsSummon ? 0 : (event.absorbed ?? 0))) > 0;
+    const netherAttackKind = resolveBossArt(event.sourceKind, this.bossVisuals)
+      ? netherEventKind(event, id => this.state?.enemies?.find(e => e.id === id)?.kind ?? null)
+      : null;
+    if (netherAttackKind === 'frost-shot' || netherAttackKind === 'scythe' || netherAttackKind === 'climax') {
+      const srcIdx = this.state?.enemies?.findIndex(e => e.id === event.source) ?? -1;
+      const srcMetrics = srcIdx >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[srcIdx], enemyX, 146, 0) : null;
+      const sourcePt = netherAttackKind === 'frost-shot'
+        ? (srcMetrics?.seal ?? srcMetrics?.head ?? { x: enemyX, y: 112 })
+        : (srcMetrics?.weapon ?? { x: enemyX - 24, y: 72 });
+      const targetPt = { x: playerX, y: hitsSummon ? 124 : 120 };
+      drawNetherCombat(g, {
+        kind: netherAttackKind,
+        source: sourcePt,
+        target: targetPt,
+        progress: fraction,
+        impactProgress: 0.62,
+        reducedMotion: Boolean(this.settings.reducedMotion),
+      });
+      return;
+    }
     if (isUltimate) {
+      if (isWaterBoss) {
+        const destX = hitsSummon ? playerX + 4 : playerX + 10;
+        const sourceX = Math.max(destX + 40, enemyX - 66);
+        drawAbyssalTsunami(g, Math.max(0, Math.min(0.999, fraction)), {
+          sourceX,
+          targetX: destX,
+          groundY: 146,
+          impactProgress: 0.62,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+          width: 320,
+          height: 180,
+        });
+        return;
+      }
       if (fraction < 0.62) {
         const t = fraction / 0.62;
         const destX = hitsSummon ? playerX + 4 : playerX + 10;
@@ -3549,19 +4092,6 @@ export class Battlefield {
           this.pixelCircle(projX, 118, 13, C[20], true);
           this.pixelCircle(projX, 118, 9, C[18], true);
           this.pixelDiamond(projX - 2, 117, 5, C[23], C[31]);
-        } else if (isWaterBoss) {
-          // Towering crashing tsunami wave wall surging across the arena
-          const waveH = Math.round(28 + t * 22);
-          for (let trail = 0; trail <= 5; trail++) {
-            const tx = Math.round(projX + trail * 10);
-            const h = Math.max(8, waveH - trail * 5);
-            g.fillStyle = trail % 2 ? C[24] : C[25];
-            g.fillRect(tx - 6, 146 - h, 12, h);
-            g.fillStyle = C[27];
-            g.fillRect(tx - 7, 146 - h, 14, 3);
-          }
-          this.pixelCircle(projX - 4, 146 - waveH + 4, 7, C[26], true);
-          this.pixelCircle(projX - 6, 146 - waveH + 2, 4, C[9], true);
         } else if (isStormBoss) {
           this.pixelBolt(enemyX - 16, 108, projX, 118, now * 0.08, C[31], C[9]);
           this.pixelBolt(enemyX - 16, 116, projX + 8, 124, now * 0.09 + 2, C[27], C[9]);

@@ -33,7 +33,7 @@ describe('Major Boss V2 — Thunder Drake Emperor (Phase B7.1 Reconstructed)', (
     assert.equal(art.neutralBounds.width, 152);
     assert.equal(art.neutralBounds.height, 124);
 
-    assert.equal(art.parts.dragonBody.frames.length, 8);
+    assert.equal(art.parts.dragonBody.frames.length, 10);
     assert.equal(art.parts.thunderOrbLeft.frames.length, 6);
     assert.equal(art.parts.thunderOrbRight.frames.length, 6);
     assert.equal(art.parts.dragonBody.z, 'front');

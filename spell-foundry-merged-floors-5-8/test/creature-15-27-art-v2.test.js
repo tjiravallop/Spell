@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
 import { Battlefield, getSummonAnchor, getSummonBounds } from '../src/render.js';
 import { CREATURE_15_27_V2 } from '../src/creature-15-27-art-v2.js';
 import { resolveSummonArt, SUMMON_ART } from '../src/summon-art.js';
@@ -24,7 +23,6 @@ const expected = {
 };
 assert.deepEqual(Object.keys(CREATURE_15_27_V2), Object.keys(expected));
 
-const app = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 
 function paint(summon, options, frame = 0) {
   const pixels = [];
@@ -40,9 +38,8 @@ function paint(summon, options, frame = 0) {
 for (const [id, [sizeClass, width, height, normalHeight, grandHeight]] of Object.entries(expected)) {
   test(id + ' V2 registers indexed art and fits Normal and Grand with fusion marks', () => {
     const { grid, materials, markAnchor } = CREATURE_15_27_V2[id];
-    const options = { [id + 'V2']: true, sizeV2: true, v2: true, aura: false };
+    const options = { [id + 'V2']: true, sizeV2: true, creaturePaletteV2: true, aura: false };
     const art = resolveSummonArt(id, options);
-    assert.ok(app.includes(id + "V2: localDev && devOptions.get('" + id + "Art') === 'v2'"));
     assert.equal(resolveSummonArt(id), SUMMON_ART[id]);
     assert.equal(resolveSummonArt(id, { sizeV2: true }), SUMMON_ART[id]);
     assert.notEqual(art, SUMMON_ART[id]);

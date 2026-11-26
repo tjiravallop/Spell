@@ -592,23 +592,7 @@ export function renderEnemies({ state, battlefield, targetId, busy }, forecast) 
 
   if (state.player?.summon && state.player.summon.hp > 0) {
     const list = $('enemy-list');
-    list.innerHTML = renderSummonCardHtml(state.player.summon, {
-      dragonV2: Boolean(battlefield?.summonVisuals?.dragonV2),
-      phoenixV2: Boolean(battlefield?.summonVisuals?.phoenixV2),
-      hydraV2: Boolean(battlefield?.summonVisuals?.hydraV2),
-      behemothV2: Boolean(battlefield?.summonVisuals?.behemothV2),
-      krakenV2: Boolean(battlefield?.summonVisuals?.krakenV2),
-      gargoyleV2: Boolean(battlefield?.summonVisuals?.gargoyleV2),
-      skeletonV2: Boolean(battlefield?.summonVisuals?.skeletonV2),
-      eagleV2: Boolean(battlefield?.summonVisuals?.eagleV2),
-      birdV2: Boolean(battlefield?.summonVisuals?.birdV2),
-      batV2: Boolean(battlefield?.summonVisuals?.batV2),
-      hornetV2: Boolean(battlefield?.summonVisuals?.hornetV2),
-      wolfV2: Boolean(battlefield?.summonVisuals?.wolfV2),
-      sirenV2: Boolean(battlefield?.summonVisuals?.sirenV2),
-      golemV2: Boolean(battlefield?.summonVisuals?.golemV2),
-      sizeV2: Boolean(battlefield?.summonVisuals?.sizeV2),
-    }) + list.innerHTML;
+    list.innerHTML = renderSummonCardHtml(state.player.summon, battlefield?.summonVisuals) + list.innerHTML;
     positionSummonCard(list);
   }
 }

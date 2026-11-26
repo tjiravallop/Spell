@@ -1,5 +1,5 @@
 import { shieldProtection } from './shields.js';
-import { WORDS, STANDALONE_WORDS, FUSED_ELEMENTS, fireShieldLayers, parseSpell } from './words.js';
+import { WORDS, CREATURE_WORDS, STANDALONE_WORDS, FUSED_ELEMENTS, fireShieldLayers, parseSpell } from './words.js';
 import {
   getHandLimit,
   MAX_CARD_UPGRADE,
@@ -128,34 +128,15 @@ const localDev = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
 const devOptions = new URLSearchParams(location.search);
 const battlefield = new Battlefield($('battle-canvas'), settings, {
   v2: localDev && devOptions.get('fusionVisuals') === 'v2',
-  dragonV2: localDev && devOptions.get('dragonArt') === 'v2',
-  phoenixV2: localDev && devOptions.get('phoenixArt') === 'v2',
-  hydraV2: localDev && devOptions.get('hydraArt') === 'v2',
-  behemothV2: localDev && devOptions.get('behemothArt') === 'v2',
-  krakenV2: localDev && devOptions.get('krakenArt') === 'v2',
-  gargoyleV2: localDev && devOptions.get('gargoyleArt') === 'v2',
-  skeletonV2: localDev && devOptions.get('skeletonArt') === 'v2',
-  eagleV2: localDev && devOptions.get('eagleArt') === 'v2',
-  birdV2: localDev && devOptions.get('birdArt') === 'v2',
-  batV2: localDev && devOptions.get('batArt') === 'v2',
-  hornetV2: localDev && devOptions.get('hornetArt') === 'v2',
-  wolfV2: localDev && devOptions.get('wolfArt') === 'v2',
-  spriteV2: localDev && devOptions.get('spriteArt') === 'v2',
-  slimeV2: localDev && devOptions.get('slimeArt') === 'v2',
-  ratV2: localDev && devOptions.get('ratArt') === 'v2',
-  frogV2: localDev && devOptions.get('frogArt') === 'v2',
-  spiderV2: localDev && devOptions.get('spiderArt') === 'v2',
-  turtleV2: localDev && devOptions.get('turtleArt') === 'v2',
-  snakeV2: localDev && devOptions.get('snakeArt') === 'v2',
-  crocV2: localDev && devOptions.get('crocArt') === 'v2',
-  boarV2: localDev && devOptions.get('boarArt') === 'v2',
-  bearV2: localDev && devOptions.get('bearArt') === 'v2',
-  lionV2: localDev && devOptions.get('lionArt') === 'v2',
-  catV2: localDev && devOptions.get('catArt') === 'v2',
-  dogV2: localDev && devOptions.get('dogArt') === 'v2',
-  sirenV2: localDev && devOptions.get('sirenArt') === 'v2',
-  golemV2: localDev && devOptions.get('golemArt') === 'v2',
-  sizeV2: localDev && devOptions.get('summonSize') === 'v2',
+  creaturePaletteV2: true,
+  auraV2: true,
+  invokeV2: true,
+  summonAttackV2: true,
+  summonIdleV2: false,
+  summonCombatV2: true,
+  bodyPaletteV2: true, // E1 approved; independent from Aura V2 preview.
+  sizeV2: true,
+  ...Object.fromEntries(CREATURE_WORDS.map(id => [`${id}V2`, true])),
 }, {
   v2: localDev && devOptions.get('bossArt') === 'v2',
   sizeTier: localDev ? (devOptions.get('bossSize') || null) : null,

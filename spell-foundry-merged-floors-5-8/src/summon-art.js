@@ -745,7 +745,7 @@ function tintMaterials(art, palette) {
   return colors;
 }
 
-function elementVariantFor(art, palette) {
+export function elementVariantFor(art, palette) {
   let variants = elementalVariants.get(art);
   if (!variants) {
     variants = new WeakMap();
@@ -761,7 +761,7 @@ function elementVariantFor(art, palette) {
   return variant;
 }
 
-export function drawSummonArt(ctx, art, left, top, scale, elementPalette, showMark = true) {
+export function drawSummonArt(ctx, art, left, top, scale, elementPalette, showMark = true, markOverride = null) {
   const variant = elementPalette ? elementVariantFor(art, elementPalette) : null;
   for (const [row, spans] of (variant?.rows ?? art.rows).entries()) {
     const y = Math.round(row * scale);
@@ -773,7 +773,7 @@ export function drawSummonArt(ctx, art, left, top, scale, elementPalette, showMa
     }
   }
   if (!variant || !showMark) return;
-  for (const [column, row, color] of variant.mark) {
+  for (const [column, row, color] of (markOverride ?? variant.mark)) {
     const x = Math.round(column * scale);
     const y = Math.round(row * scale);
     ctx.fillStyle = color;

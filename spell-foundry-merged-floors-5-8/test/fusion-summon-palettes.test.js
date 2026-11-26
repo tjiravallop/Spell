@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Battlefield, PALETTE } from '../src/render.js';
-import { drawSummonArt, SUMMON_ART } from '../src/summon-art.js';
-import { FUSION_SUMMON_PALETTES } from '../src/summon-palettes.js';
-import { CREATURE_WORDS, FUSION_COMPONENTS, SECOND_TIER_ELEMENTS } from '../src/words.js';
+import { drawSummonArt, resolveSummonArt, SUMMON_ART } from '../src/summon-art.js';
+import { FUSION_SUMMON_PALETTES, SUMMON_BODY_PALETTES } from '../src/summon-palettes.js';
+import { CREATURE_WORDS, ELEMENTS, FUSION_COMPONENTS, SECOND_TIER_ELEMENTS } from '../src/words.js';
 
 const hexColor = /^#[0-9a-f]{6}$/i;
 const lightness = hex => [0.213, 0.715, 0.072].reduce((sum, weight, i) => {
@@ -142,6 +142,49 @@ test('Enabling V2 preserves non-fusion summon appearance, including legacy fallb
       for (const element of elements) {
         assert.deepEqual(summonFrame(creature, element, grand, { v2: true }),
           summonFrame(creature, element, grand), `${creature} ${element} ${grand}`);
+      }
+    }
+  }
+});
+
+test('E1 preview covers all basic and ascended elements and preserves sprite geometry, ink, emissives, and marks', () => {
+  const elements = ELEMENTS.filter(id => !Object.hasOwn(FUSION_COMPONENTS, id));
+  assert.deepEqual(Object.keys(SUMMON_BODY_PALETTES).sort(), elements.sort());
+  for (const [id, ramp] of Object.entries(SUMMON_BODY_PALETTES)) {
+    const stops = [ramp.shadow, ramp.midtone, ramp.highlight];
+    for (const color of stops) assert.match(color, hexColor, id);
+    for (let i = 1; i < stops.length; i++) {
+      assert.ok(lightness(stops[i]) - lightness(stops[i - 1]) > 0.08, id);
+    }
+  }
+  for (const creature of CREATURE_WORDS) {
+    const options = { [`${creature}V2`]: true, sizeV2: true, creaturePaletteV2: true, previewTime: 0 };
+    const art = resolveSummonArt(creature, options);
+    const materials = art.rows.flat().map(([material]) => material);
+    for (const grand of [false, true]) {
+      for (const id of [...elements, 'magnet', 'magma', 'hail']) {
+        const label = `${creature} ${id} ${grand ? 'Grand' : 'Normal'}`;
+        const legacy = summonFrame(creature, id, grand, options, null, false);
+        const preview = summonFrame(creature, id, grand, { ...options, bodyPaletteV2: true }, null, false);
+        if (Object.hasOwn(FUSION_COMPONENTS, id)) {
+          assert.deepEqual(preview, legacy, label);
+          continue;
+        }
+        assert.deepEqual(preview.rings, legacy.rings, label);
+        const firstBodySpan = 4; // Ground shadow and three ambient sparks.
+        assert.deepEqual(preview.pixels.map(paint => paint.slice(0, 4)),
+          legacy.pixels.map(paint => paint.slice(0, 4)), label);
+        const markStart = firstBodySpan + materials.length;
+        assert.deepEqual(preview.pixels.slice(markStart), legacy.pixels.slice(markStart), label);
+        if (!Object.hasOwn(SECOND_TIER_ELEMENTS, id)) assert.equal(preview.pixels.length, markStart, label);
+        let changed = false;
+        materials.forEach((material, i) => {
+          const before = legacy.pixels[firstBodySpan + i][4];
+          const after = preview.pixels[firstBodySpan + i][4];
+          if (body(material)) changed ||= before !== after;
+          else assert.equal(after, before, label);
+        });
+        assert.ok(changed, label);
       }
     }
   }

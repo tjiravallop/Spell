@@ -5,6 +5,23 @@ import { createRun, createEnemy, enterRoom, enterSanctuary, updateSanctuaryLoado
 import { simulateTurn } from '../src/combat.js';
 import { validateRun, saveRun, loadRun, SAVE_KEY } from '../src/save.js';
 import { Battlefield } from '../src/render.js';
+import { ATTACK_PROFILES, mapSummonAttackMark, prepareSummonAttackPose, summonAttackClock, summonAttackDelivery, summonAttackFxProgress } from '../src/summon-attack-v2.js';
+import { elementVariantFor, resolveSummonArt } from '../src/summon-art.js';
+import { SUMMON_BODY_PALETTES } from '../src/summon-palettes.js';
+import { IDLE_PROFILES, mapSummonIdleMark, prepareSummonIdlePose } from '../src/summon-idle-v2.js';
+
+function representativeSummonMark(art, palette) {
+  const mark = elementVariantFor(art, palette).mark;
+  if (mark.length) return mark;
+  for (let y = 0; y < art.height; y++) {
+    for (let x = 0; x < art.width; x++) {
+      if (art.pixels[y][x] && !['ink', 'spark', 'core'].includes(art.pixels[y][x])) {
+        return [[x, y, palette.highlight ?? '#ffffff']];
+      }
+    }
+  }
+  return [];
+}
 
 test('Summon System: Grammar, Syntax, and Parsing', () => {
   // 1. Verify summon card and all 27 creatures exist in WORDS
@@ -46,6 +63,180 @@ test('Summon System: Grammar, Syntax, and Parsing', () => {
   assert.ok(!parseSpell(['dog']).ok);
   assert.ok(!parseSpell(['summon', 'fire']).ok);
   assert.ok(!parseSpell(['dog', 'summon']).ok);
+});
+
+test('E6.1 routes species attacks and keeps posed marks on source pixels', () => {
+  const routes = {};
+  for (const creatureId of Object.keys(ATTACK_PROFILES)) {
+    const delivery = summonAttackDelivery(creatureId);
+    routes[delivery] = (routes[delivery] ?? 0) + 1;
+  }
+  assert.deepEqual(routes, { projectile: 5, ground: 1, tether: 2, melee: 18, sonic: 1 });
+
+  const art = resolveSummonArt('dragon', { dragonV2: true, sizeV2: true });
+  const palette = SUMMON_BODY_PALETTES.fire;
+  const mark = representativeSummonMark(art, palette);
+  const options = {
+    creatureId: 'dragon', art, left: 58, top: 87, scale: 1.5,
+    groundX: 88, groundY: 147, targetX: 206, targetY: 124,
+  };
+  const pose = prepareSummonAttackPose({ ...options, progress: 0.5 });
+  const idle = prepareSummonAttackPose({ ...options, progress: 1 });
+  const reduced = prepareSummonAttackPose({ ...options, progress: 0.5, reducedMotion: true });
+  const posedMark = mapSummonAttackMark(pose.art, mark);
+  assert.equal(pose.delivery, 'projectile');
+  assert.ok(posedMark.length > 0);
+  assert.ok(posedMark.every(([x, y]) => x >= 0 && x < pose.art.width && y >= 0 && y < pose.art.height));
+  assert.equal(idle.art, art, 'attack ends on the original idle art');
+  assert.equal(idle.left, options.left, 'attack returns to its original position');
+  assert.equal(reduced.art, art, 'reduced motion skips body deformation');
+  assert.equal(reduced.left, options.left);
+  const renderer = {
+    summonVisuals: { summonAttackV2: true, dragonV2: true, sizeV2: true },
+    settings: { reducedMotion: false },
+    state: { enemies: [{ id: 'target' }] },
+    ctx: { canvas: { width: 320 } },
+  };
+  const routedPose = Battlefield.prototype.prepareSummonAttackPoseForEvent.call(
+    renderer,
+    { creatureId: 'dragon', element: 'fire', isGrand: false },
+    88, 147, 2,
+    { type: 'summon_strike', creature: 'dragon', target: 'target', amount: 5 },
+    0.5, 206,
+  );
+  assert.equal(routedPose.delivery, 'projectile');
+  assert.equal(routedPose.targetX, 206, 'pose receives the live target position');
+  assert.equal(summonAttackClock(0.43, 'strike'), 0.43);
+  assert.equal(summonAttackClock(0.32, 'counter'), 0.43);
+  assert.equal(summonAttackFxProgress(0, 'strike'), null);
+  assert.equal(summonAttackFxProgress(0.43, 'strike'), 0.43);
+});
+
+test('E6.1 summon attack timings scale once, preserve relay handoff, and keep full long turns', () => {
+  const makeBattlefield = (combatSpeed, reducedMotion = false, isGrand = false, enabled = true) => {
+    const battlefield = Object.create(Battlefield.prototype);
+    battlefield.settings = { combatSpeed, reducedMotion };
+    battlefield.summonVisuals = { summonAttackV2: enabled };
+    battlefield.state = {
+      player: { hp: 36, shield: null, summon: { creatureId: 'dog', isGrand, hp: 20, maxHp: 20 } },
+      enemies: [], magmaPuddles: [],
+    };
+    return battlefield;
+  };
+  const run = (battlefield, events) => battlefield.animate(events, () => {}, () => {});
+  const attackEvents = [
+    { type: 'summon_strike', creature: 'dog', target: 'target', amount: 5 },
+    { type: 'summon_counter', target: 'target', amount: 5 },
+    { type: 'summon_strike', creature: 'dog', target: 'target', amount: 5, relay: true },
+  ];
+  for (const [speed, normal, grand] of [[1, 1100, 1500], [2, 550, 750], [3, 367, 500]]) {
+    for (const event of attackEvents) {
+      const normalBattlefield = makeBattlefield(speed, false, false);
+      run(normalBattlefield, [event]);
+      assert.equal(normalBattlefield.duration, normal, `Normal ${event.type} at ${speed}x`);
+      const grandBattlefield = makeBattlefield(speed, false, true);
+      run(grandBattlefield, [event]);
+      assert.equal(grandBattlefield.duration, grand, `Grand ${event.type} at ${speed}x`);
+      assert.equal(normalBattlefield.eventEnds[0], normal);
+      assert.equal(grandBattlefield.eventEnds[0], grand);
+    }
+  }
+
+  const normalSummon = { type: 'summon_invoke', creature: 'dog', hp: 20, isGrand: false };
+  const grandSummon = { type: 'summon_invoke', creature: 'wolf', hp: 20, isGrand: true };
+  const handoff = makeBattlefield(1);
+  run(handoff, [{ type: 'summon_relay', oldCreature: 'dog', newCreature: 'wolf' }]);
+  assert.equal(handoff.duration, 520, 'non-damaging relay handoff keeps its old segment');
+  const invocation = makeBattlefield(1);
+  run(invocation, [normalSummon]);
+  assert.equal(invocation.duration, 520, 'summon invocation keeps its old segment');
+  const unrelated = makeBattlefield(1);
+  run(unrelated, [{ type: 'shield' }]);
+  assert.equal(unrelated.duration, 520, 'unrelated action keeps its old segment');
+
+  const followedGrand = makeBattlefield(1);
+  run(followedGrand, [grandSummon, { type: 'summon_counter', target: 'target', amount: 5 }]);
+  assert.deepEqual(followedGrand.eventEnds, [520, 2020], 'counter duration follows the invoked Grand summon');
+
+  const longTurn = makeBattlefield(1, false, true);
+  run(longTurn, [...Array.from({ length: 3 }, () => ({ ...attackEvents[0] })), { type: 'shield' }]);
+  assert.equal(longTurn.duration, 5020, 'normal-motion turn exceeds the removed 3400 ms cap');
+  assert.deepEqual(longTurn.eventEnds, [1500, 3000, 4500, 5020]);
+
+  const victory = makeBattlefield(1);
+  run(victory, [attackEvents[0], { type: 'room-clear' }]);
+  assert.equal(victory.duration, 2000);
+  assert.deepEqual(victory.eventEnds, [1100, 2000], 'victory hold follows the actual event timeline');
+
+  const reducedMin = makeBattlefield(1, true);
+  run(reducedMin, [attackEvents[0]]);
+  assert.equal(reducedMin.duration, 500, 'reduced motion keeps its prior minimum');
+  const reducedCap = makeBattlefield(1, true);
+  run(reducedCap, Array.from({ length: 7 }, () => ({ ...attackEvents[0] })));
+  assert.equal(reducedCap.duration, 1200, 'reduced motion keeps its prior duration cap');
+
+  const rollback = makeBattlefield(1, false, false, false);
+  run(rollback, [attackEvents[0]]);
+  assert.equal(rollback.duration, 520, 'legacy timing remains available behind the feature flag');
+});
+
+test('E6.2 routes idle poses, maps marks, pins grounded art, and respects active animation priority', () => {
+  assert.equal(Object.keys(IDLE_PROFILES).length, CREATURE_WORDS.length);
+  const art = resolveSummonArt('dog', { dogV2: true, sizeV2: true });
+  const palette = SUMMON_BODY_PALETTES.fire;
+  const mark = representativeSummonMark(art, palette);
+  const options = {
+    creatureId: 'dog', art, left: 73, top: 99, scale: 1.5,
+    groundX: 88, groundY: 147, grand: false, canvasWidth: 320, canvasHeight: 180,
+  };
+  const a = prepareSummonIdlePose({ ...options, timeMs: 300 });
+  const b = prepareSummonIdlePose({ ...options, timeMs: 700 });
+  assert.equal(a.art.idlePoseSource, art);
+  assert.notEqual(a.art, art, 'idle pose deforms cached art');
+  assert.notDeepEqual(a.art.pixels, b.art.pixels, 'continuous time selects changing idle frames');
+  const posedMark = mapSummonIdleMark(a.art, mark);
+  assert.ok(posedMark.length > 0);
+  assert.ok(posedMark.every(([x, y]) => x >= 0 && x < a.art.width && y >= 0 && y < a.art.height));
+  const bottomRow = value => value.rows.reduce((bottom, row, y) => row.length ? y + 1 : bottom, 0);
+  const originalBottom = bottomRow(art);
+  const posedBottom = bottomRow(a.art);
+  assert.equal(a.top + Math.round(posedBottom * a.scale), options.top + Math.round(originalBottom * options.scale), 'ground contact remains pinned');
+
+  const renderer = {
+    summonVisuals: { summonIdleV2: true, dogV2: true, sizeV2: true },
+    settings: { reducedMotion: false }, ctx: { canvas: { width: 320, height: 180 } },
+  };
+  const route = (event = null, progress = 0) => Battlefield.prototype.prepareSummonIdlePoseForEvent.call(
+    renderer, { creatureId: 'dog', isGrand: false }, art,
+    { left: options.left, top: options.top, scale: options.scale, groundX: options.groundX, groundY: options.groundY },
+    event, progress, 700,
+  );
+  assert.ok(route(), 'idle is active with no summon-specific event');
+  for (const event of [
+    { type: 'summon_invoke' }, { type: 'summon_strike' }, { type: 'summon_counter' },
+    { type: 'summon_relay' }, { type: 'summon_hit' }, { type: 'summon_rebirth' },
+    { type: 'summon_break' }, { type: 'attack', target: 'summon' },
+  ]) assert.equal(route(event, 0.8), null, `${event.type} has priority over idle`);
+  renderer.settings.reducedMotion = true;
+  assert.equal(route().art, art, 'reduced motion returns the original art');
+  renderer.summonVisuals.summonIdleV2 = false;
+  assert.equal(route(), null, 'independent legacy flag disables idle V2');
+});
+
+test('E6.2 airborne idle keeps hover geometry and attack transitions return to idle', () => {
+  const art = resolveSummonArt('phoenix', { phoenixV2: true, sizeV2: true });
+  assert.ok(art.lift > 0);
+  const options = {
+    creatureId: 'phoenix', art, left: 50, top: 54, scale: 1.3,
+    groundX: 88, groundY: 147, grand: true, canvasWidth: 320, canvasHeight: 180,
+  };
+  const pose = prepareSummonIdlePose({ ...options, timeMs: 420 });
+  assert.equal(pose.groundX, options.groundX);
+  assert.equal(pose.groundY, options.groundY);
+  assert.ok(pose.top < options.groundY, 'airborne body remains above the ground anchor');
+  const idleAgain = prepareSummonIdlePose({ ...options, timeMs: 840 });
+  assert.ok(idleAgain, 'idle routing resumes after an attack event ends');
+  assert.equal(prepareSummonIdlePose({ ...options, timeMs: 420, reducedMotion: true }).art, art);
 });
 
 test('Summon System: Reward Pool gating (Creatures drop only if player owns summon)', () => {
@@ -398,11 +589,7 @@ test('Summon System: All 27 Creatures drawSummonSprite and Audio presets execute
     fillStyle: '',
     fillRect: () => {},
   };
-  const fakeBf = {
-    ctx: mockCtx,
-    settings: { reducedMotion: false },
-    pixelEllipse: () => {},
-  };
+  const fakeBf = { ctx: mockCtx, settings: { reducedMotion: false }, pixelEllipse: () => {} };
 
   // Verify all 27 creatures render cleanly with various elements
   for (const cid of CREATURE_WORDS) {

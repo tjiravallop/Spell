@@ -869,13 +869,17 @@ export function simulateTurn(original, spellInput, targetId, secondTargetId = ta
         summary.sequence.push('สายฟ้าช็อตผิวน้ำบาดาล · +15 ดาเมจทะลุเกราะ');
       }
     }
-    const hasPurgeElement = elements.some(id => {
+    const purgeElement = elements.map(id => {
       const comps = getElementComponents(id);
-      return comps.includes('fire') || comps.includes('lightning');
-    });
+      return comps.find(c => c === 'fire' || c === 'lightning') ?? null;
+    }).find(Boolean) ?? null;
+    const hasPurgeElement = Boolean(purgeElement);
     if ((enemy.kind === 'nether_dread_lord' || enemy.kind === 'nether_forge_overlord') && hasPurgeElement && enemy.hp > 0) {
       const alreadyPurged = enemy.netherPurgeUntil >= turn + 1;
       enemy.netherPurgeUntil = turn + 1;
+      if (!alreadyPurged && enemy.kind === 'nether_dread_lord') {
+        events.push({ type: 'nether-purge', target: enemy.id, targetKind: enemy.kind, element: purgeElement });
+      }
       if (!alreadyPurged && enemy.armor > 0) {
         const reduced = Math.min(enemy.armor, 2);
         enemy.armor = Math.max(0, enemy.armor - reduced);

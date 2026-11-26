@@ -5,6 +5,15 @@ import { MIRROR_REGENT_V2_DEF } from './boss-art/mirror-regent-v2.js';
 import { LOOM_SOVEREIGN_V2_DEF } from './boss-art/loom-sovereign-v2.js';
 import { VOLCANO_COLOSSUS_V2_DEF } from './boss-art/volcano-colossus-v2.js';
 import { THUNDER_DRAKE_EMPEROR_V2_DEF } from './boss-art/thunder-drake-emperor-v2.js';
+import { CTHULHU_WARD_TENTACLE_V2_DEF } from './boss-art/cthulhu-ward-tentacle-v2.js';
+import { CTHULHU_HEAL_TENTACLE_V2_DEF } from './boss-art/cthulhu-heal-tentacle-v2.js';
+import { CTHULHU_INK_TENTACLE_V2_DEF } from './boss-art/cthulhu-ink-tentacle-v2.js';
+import { CTHULHU_CRUSH_TENTACLE_V2_DEF } from './boss-art/cthulhu-crush-tentacle-v2.js';
+import { ABYSSAL_CTHULHU_V2_DEF } from './boss-art/abyssal-cthulhu-v2.js';
+import { NETHER_DREAD_LORD_V2_DEF } from './boss-art/nether-dread-lord-v2.js';
+import { NETHER_LEECH_PILLAR_V2_DEF } from './boss-art/nether-leech-pillar-v2.js';
+import { NETHER_CURSE_PILLAR_V2_DEF } from './boss-art/nether-curse-pillar-v2.js';
+import { NETHER_DOOM_PILLAR_V2_DEF } from './boss-art/nether-doom-pillar-v2.js';
 import { getOpaqueBounds } from './boss-sizes.js';
 
 function pixelSpans(row) {
@@ -170,6 +179,15 @@ export const BOSS_ART_V2 = Object.freeze({
   loom_sovereign: createBossArt(LOOM_SOVEREIGN_V2_DEF, 'loom_sovereign'),
   volcano_colossus: createBossArt(VOLCANO_COLOSSUS_V2_DEF, 'volcano_colossus'),
   thunder_drake_emperor: createBossArt(THUNDER_DRAKE_EMPEROR_V2_DEF, 'thunder_drake_emperor'),
+  cthulhu_ward_tentacle: createBossArt(CTHULHU_WARD_TENTACLE_V2_DEF, 'cthulhu_ward_tentacle'),
+  cthulhu_heal_tentacle: createBossArt(CTHULHU_HEAL_TENTACLE_V2_DEF, 'cthulhu_heal_tentacle'),
+  cthulhu_ink_tentacle: createBossArt(CTHULHU_INK_TENTACLE_V2_DEF, 'cthulhu_ink_tentacle'),
+  cthulhu_crush_tentacle: createBossArt(CTHULHU_CRUSH_TENTACLE_V2_DEF, 'cthulhu_crush_tentacle'),
+  abyssal_cthulhu: createBossArt(ABYSSAL_CTHULHU_V2_DEF, 'abyssal_cthulhu'),
+  nether_dread_lord: createBossArt(NETHER_DREAD_LORD_V2_DEF, 'nether_dread_lord'),
+  nether_leech_pillar: createBossArt(NETHER_LEECH_PILLAR_V2_DEF, 'nether_leech_pillar'),
+  nether_curse_pillar: createBossArt(NETHER_CURSE_PILLAR_V2_DEF, 'nether_curse_pillar'),
+  nether_doom_pillar: createBossArt(NETHER_DOOM_PILLAR_V2_DEF, 'nether_doom_pillar'),
 });
 
 export function resolveBossArt(kind, bossVisuals) {

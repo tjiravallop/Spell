@@ -2641,6 +2641,7 @@ export function checkNetherPhase2(state, summary = null, events = null) {
   if (boss.hp <= Math.floor(boss.maxHp / 2)) {
     state.netherPhase = 2;
     const sacrificed = livePillars.length;
+    const sacrificedIds = livePillars.map(p => p.id);
     for (const pillar of livePillars) pillar.hp = 0;
     const rawHeal = sacrificed * 350;
     const effectiveHeal = boss.healCutUntil >= state.turn ? Math.floor(rawHeal / 2) : rawHeal;
@@ -2655,6 +2656,7 @@ export function checkNetherPhase2(state, summary = null, events = null) {
         phase: 2,
         mode: 'sacrifice',
         sacrificed,
+        sacrificedIds,
         healed,
         label: `💀 จอมอสูรนรกานต์สังเวยเสาที่เหลือ ${sacrificed} ต้น ฟื้น +${healed} HP และเข้าสู่โหมดปลดผนึก!`,
       });

@@ -1,3 +1,24 @@
+const bodyRamps = {
+  fire:      ['#66362B', '#BF6137', '#ECA66E'],
+  ice:       ['#305673', '#629EB6', '#C0E7ED'],
+  lightning: ['#615137', '#B09649', '#F1DA83'],
+  earth:     ['#514032', '#967049', '#CCAB79'],
+  water:     ['#244969', '#427EAF', '#89BDE0'],
+  wind:      ['#31594D', '#6B9A79', '#B4D8A7'],
+  akki:      ['#58203B', '#BE3D4F', '#FF9379'],
+  heman:     ['#393869', '#766BC4', '#B9B7F0'],
+  asani:     ['#462B67', '#955BB9', '#ECC6EE'],
+  pathaphi:  ['#533B43', '#AB6553', '#E9AE75'],
+  wari:      ['#235365', '#379C9E', '#94E0CF'],
+  vayu:      ['#245344', '#569B59', '#C9E88A'],
+};
+
+export const SUMMON_BODY_PALETTES = Object.freeze(Object.fromEntries(
+  Object.entries(bodyRamps).map(([id, [shadow, midtone, highlight]]) => [
+    id, Object.freeze({ shadow, midtone, highlight }),
+  ]),
+));
+
 const ramps = {
   // Shadow, midtone, highlight, accent, mark edge, aura, rim, optional mark fill.
   magma:        ['#30252B', '#92402E', '#E87938', '#FFD369', '#FF9D49', '#D95C35', '#F5A75A'],
