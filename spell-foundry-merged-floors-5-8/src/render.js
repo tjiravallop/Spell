@@ -1,5 +1,5 @@
 import { shieldProtection } from './shields.js';
-import { ENEMIES, FLOOR21_START_ROOM, FLOOR30_BOSS_ROOM, FLOOR40_BOSS_ROOM, FLOOR50_BOSS_ROOM, FLOOR60_BOSS_ROOM, FLOOR70_BOSS_ROOM, FLOOR80_BOSS_ROOM, FLOOR90_BOSS_ROOM, NETHER_PILLAR_KINDS, RELIC_DRAFT_CATALOG, getFloorInfo } from './run.js';
+import { ENEMIES, FLOOR21_START_ROOM, FLOOR30_BOSS_ROOM, FLOOR40_BOSS_ROOM, FLOOR50_BOSS_ROOM, FLOOR60_BOSS_ROOM, FLOOR70_BOSS_ROOM, FLOOR80_BOSS_ROOM, FLOOR90_BOSS_ROOM, FLOOR100_BOSS_ROOM, NETHER_PILLAR_KINDS, RELIC_DRAFT_CATALOG, getFloorInfo } from './run.js';
 import { elementFamily, FUSION_COMPONENTS } from './words.js';
 import { middleSprites } from './middle-sprites.js';
 import { loadSpriteArt, spriteFrame } from './sprite-art.js';
@@ -12,13 +12,39 @@ import { prepareSummonAuraV2, drawSummonAuraLayerV2 } from './summon-aura-v2.js'
 import { prepareSummonInvokeV2, drawSummonInvokeBodyV2, drawSummonInvokeLayerV2 } from './summon-invoke-v2.js';
 import { drawSummonAttackAnatomy, mapSummonAttackMark, prepareSummonAttackPose, summonAttackDelivery, summonAttackFxProgress } from './summon-attack-v2.js';
 import { mapSummonIdleMark, prepareSummonIdlePose } from './summon-idle-v2.js';
+import { drawSummonReactionFx, mapSummonReactionMark, prepareSummonReactionPose, summonReactionKind } from './summon-reaction-v2.js';
 import { drawSummonCombatV2 } from './summon-combat-v2.js';
-import { drawBossArt, evaluateBossAnimation, resolveBossArt } from './boss-art-v2.js';
+import { drawPlayerV2 } from './player-art-v2.js';
+import { ENEMY_ART_V2, ENEMY_ID_RENAMES, drawEnemyV2 } from './enemy-art-v2.js';
+import { drawBossArt, evaluateBossAnimation, resolveBossArt, resolveContextBossArt as resolveSharedContextBossArt } from './boss-art-v2.js';
 import { drawCthulhuConductivity } from './boss-art/cthulhu-conductivity-vfx.js';
 import { drawAbyssalTsunami } from './boss-art/abyssal-tsunami-v3.js';
 import { PALETTE as RIFT_PALETTE, drawAbyssalArrivalPulse, drawAbyssalRift, revealState } from './boss-art/abyssal-rift-v2.js';
 import { drawNetherChain, drawNetherCombat, netherEventKind } from './boss-art/nether-combat-vfx.js';
+import { classifyCouncilEvent, councilProtectionState, drawCouncilSwapActor, drawEternityCouncil } from './boss-art/eternity-council-vfx.js';
+import { drawCouncilAbsorption, prepareCouncilSnapshot } from './boss-art/eternity-council-absorption.js';
+import { drawElementalShift, drawPrismaticReflection, isElementalShift, isPrismaticReflectionEvent } from './boss-art/eternity-prismatic-vfx.js';
+import { chronoEchoState, drawChronoRewind, drawPrismShatter, isChronoRewindEvent, isPrismShatterEvent } from './boss-art/eternity-chrono-prism-vfx.js';
+import { classifyEternityWave, drawEternityWave } from './boss-art/eternity-waves-vfx.js';
+import { drawEternitySupernova } from './boss-art/eternity-supernova-vfx.js';
+import { drawEternityRebirth, prepareRebirthSnapshot, rebirthProgressFromElapsed, rebirthStage, reserveRebirthTimeline } from './boss-art/eternity-rebirth-vfx.js';
 import { getBossVisualBounds, resolveBossLayer, resolveBossOffset, resolveBossScale } from './boss-sizes.js';
+
+function resolveEnemyV2Profile(kind) {
+  if (!kind) return null;
+  if (kind === 'chaos_weaver') return ENEMY_ART_V2.cosmic_silk_oracle ?? null;
+  if (kind === 'council_zenith_templar') return ENEMY_ART_V2.astral_vanguard ?? null;
+  const canonical = Object.hasOwn(ENEMY_ID_RENAMES, kind) ? ENEMY_ID_RENAMES[kind] : kind;
+  return Object.hasOwn(ENEMY_ART_V2, canonical) ? ENEMY_ART_V2[canonical] : null;
+}
+
+function isFloor100BossRoomV2(state, bossVisuals) {
+  return Boolean(state?.room === FLOOR100_BOSS_ROOM && !state?.rift && bossVisuals?.v2);
+}
+
+function resolveContextBossArt(kind, state, bossVisuals) {
+  return resolveSharedContextBossArt(kind, state, bossVisuals, FLOOR100_BOSS_ROOM);
+}
 
 export const PALETTE = ['#10191b', '#172326', '#203033', '#2b3d3c', '#3b4b46', '#536454', '#718063', '#9da77c', '#cbd5a1', '#eff0c4', '#332d2b', '#514036', '#765740', '#a57a50', '#d3aa6b', '#efd19a', '#4d3036', '#7b464c', '#b46c67', '#e29d83', '#3d374e', '#60516f', '#907ba6', '#bca5d2', '#335250', '#53857b', '#8bb7a0', '#b7d9bd', '#7e512e', '#b98745', '#e4b659', '#f5db87'];
 const C = PALETTE;
@@ -246,6 +272,7 @@ export class Battlefield {
     this.settings = settings; this.state = null; this.target = null; this.events = []; this.started = 0; this.duration = 0;
     this.summonVisuals = summonVisuals;
     this.bossVisuals = bossVisuals;
+    this.enemyArtV2 = summonVisuals?.enemyArtV2 !== false && bossVisuals?.enemyArtV2 !== false;
     this.spriteArt = loadSpriteArt();
     this.background = document.createElement('canvas'); this.background.width = 320; this.background.height = 180;
     const backgroundContext = this.background.getContext('2d');
@@ -382,7 +409,28 @@ export class Battlefield {
       }
       return this.duration;
     });
-    if (this.settings.reducedMotion && this.duration > 0) {
+    this.rebirthPlan = null;
+    this.rebirthSnapshotCache = null;
+    this.councilSnapshotCache = null;
+    this.swapSnapshotCache = null;
+    this.presentedTurn = this.state?.turn ?? 1;
+    const rebirthIndex = isFloor100BossRoomV2(this.state, this.bossVisuals)
+      ? actionEvents.findIndex(e => e.type === 'boss-phase' && e.sourceKind === 'eternity_reborn' && e.phase === 3 && e.mode === 'reborn')
+      : -1;
+    if (rebirthIndex >= 0) {
+      const steps = rawEnds.map((end, i) => end - (rawEnds[i - 1] ?? 0));
+      const minDuration = Math.round((this.settings.reducedMotion ? 500 : 1500) / speed);
+      const maxDuration = Math.round((this.settings.reducedMotion ? 1200 : 3400) / speed);
+      const plan = reserveRebirthTimeline(steps, rebirthIndex, {
+        speed,
+        reducedMotion: Boolean(this.settings.reducedMotion),
+        minDuration,
+        maxDuration,
+      });
+      this.eventEnds = plan.eventEnds;
+      this.duration = plan.duration;
+      this.rebirthPlan = { index: rebirthIndex, timing: plan.timing };
+    } else if (this.settings.reducedMotion && this.duration > 0) {
       const minDuration = Math.round(500 / speed);
       const maxDuration = Math.round(1200 / speed);
       if (this.duration > maxDuration) {
@@ -414,6 +462,8 @@ export class Battlefield {
     const killedInBatch = new Set();
     let hasNetherPhase2Event = false;
     let hasNetherPurgeEvent = false;
+    let hasEternityPhase2Event = false;
+    let rebirthEvent = null;
     for (const ev of this.events) {
       if ((ev.killed || ev.damage?.killed) && ev.target) killedInBatch.add(ev.target);
       if (ev.pierceHit && (ev.pierceHit.killed || ev.pierceHit.damage?.killed) && ev.pierceHit.target) killedInBatch.add(ev.pierceHit.target);
@@ -423,6 +473,13 @@ export class Battlefield {
       if (ev.type === 'boss-phase' && ev.sourceKind === 'nether_dread_lord' && ev.phase === 2) {
         hasNetherPhase2Event = true;
         if (Array.isArray(ev.sacrificedIds)) for (const id of ev.sacrificedIds) killedInBatch.add(id);
+      }
+      if (ev.type === 'boss-phase' && ev.sourceKind === 'eternity_overlord' && ev.phase === 2) {
+        hasEternityPhase2Event = true;
+        if (Array.isArray(ev.absorbedIds)) for (const id of ev.absorbedIds) killedInBatch.add(id);
+      }
+      if (ev.type === 'boss-phase' && ev.sourceKind === 'eternity_reborn' && ev.phase === 3) {
+        rebirthEvent = ev;
       }
       if (ev.type === 'nether-purge' && ev.targetKind === 'nether_dread_lord') {
         hasNetherPurgeEvent = true;
@@ -434,6 +491,11 @@ export class Battlefield {
     let curNetherPurged = hasNetherPurgeEvent
       ? false
       : Boolean(netherBoss && (netherBoss.netherPurgeUntil ?? 0) >= (this.state?.turn ?? 0));
+    let curEternityPhase = hasEternityPhase2Event
+      ? 1
+      : rebirthEvent
+        ? (rebirthEvent.outgoingBoss?.eternityPhase ?? 2)
+        : (this.state?.eternityPhase ?? 1);
     let lastBrokenPillarId = null;
     const curWards = Object.fromEntries(enemies.map(e => [e.id, e.ward]));
     const oldPuddles = new Set(this.state?.magmaPuddles);
@@ -456,6 +518,7 @@ export class Battlefield {
         summon: curSummon ? { ...curSummon } : null,
         netherPhase: curNetherPhase,
         netherPurged: curNetherPurged,
+        eternityPhase: curEternityPhase,
         lastBrokenPillarId,
       });
       const ev = this.events[i];
@@ -526,6 +589,18 @@ export class Battlefield {
             }
           }
         }
+        if (ev.type === 'boss-phase' && ev.sourceKind === 'eternity_overlord' && ev.phase === 2) {
+          curEternityPhase = 2;
+          if (Array.isArray(ev.absorbedIds)) {
+            for (const id of ev.absorbedIds) {
+              curDead.add(id);
+              if (deathStartMs[id] === undefined) deathStartMs[id] = start;
+            }
+          }
+        }
+        if (ev.type === 'boss-phase' && ev.sourceKind === 'eternity_reborn' && ev.phase === 3) {
+          curEternityPhase = 3;
+        }
         if (ev.type === 'nether-purge' && ev.targetKind === 'nether_dread_lord') {
           curNetherPurged = true;
         }
@@ -548,7 +623,10 @@ export class Battlefield {
           curWards[ev.target] = Math.max(0, (curWards[ev.target] ?? 0) - removed);
           ev.wardRemaining = curWards[ev.target];
         }
-        this.contacts.push({ event: ev, at: contact, index: i });
+        const contactAt = (this.rebirthPlan && i === this.rebirthPlan.index)
+          ? start + this.rebirthPlan.timing.collapseMs + this.rebirthPlan.timing.emptyMs
+          : contact;
+        this.contacts.push({ event: ev, at: contactAt, index: i });
       }
       if (ev.type === 'blast') {
         const centerIndex = enemies.findIndex(enemy => enemy.id === ev.target);
@@ -622,12 +700,30 @@ export class Battlefield {
     this.duration = 0;
     this.onEvent = null;
     this.onComplete = null;
+    this.rebirthPlan = null;
+    this.rebirthSnapshotCache = null;
+    this.councilSnapshotCache = null;
+    this.swapSnapshotCache = null;
+    this.shiftCueState = null;
     this.snapshots = null;
     this.contacts = [];
   }
   configure(settings) { this.settings = settings; }
+  resolveContextBossArt(kind) {
+    return resolveContextBossArt(kind, this.state, this.bossVisuals);
+  }
+  isFloor100BossRoomV2() {
+    return isFloor100BossRoomV2(this.state, this.bossVisuals);
+  }
   enemyX(enemy, slot = enemy.slot) {
-    if ((this.state?.room === FLOOR30_BOSS_ROOM || this.state?.room === FLOOR40_BOSS_ROOM || this.state?.room === FLOOR50_BOSS_ROOM || this.state?.room === FLOOR60_BOSS_ROOM || this.state?.room === FLOOR70_BOSS_ROOM || this.state?.room === FLOOR90_BOSS_ROOM) && this.state.enemies?.some(e => resolveBossArt(e.kind, this.bossVisuals) && resolveBossLayer(e.kind, this.bossVisuals) === 'rear')) {
+    if (isFloor100BossRoomV2(this.state, this.bossVisuals)) {
+      const soloPhase = (this.state?.eternityPhase ?? 1) >= 2 && this.state.enemies?.length <= 1;
+      if (soloPhase) return 224;
+      const f100SlotMap = { 0: 228, 1: 172, 2: 220, 3: 220, 4: 268 };
+      if (Object.hasOwn(f100SlotMap, slot)) return f100SlotMap[slot];
+      return enemy?.kind === 'eternity_overlord' ? 228 : 220;
+    }
+    if ((this.state?.room === FLOOR30_BOSS_ROOM || this.state?.room === FLOOR40_BOSS_ROOM || this.state?.room === FLOOR50_BOSS_ROOM || this.state?.room === FLOOR60_BOSS_ROOM || this.state?.room === FLOOR70_BOSS_ROOM || this.state?.room === FLOOR90_BOSS_ROOM) && this.state.enemies?.some(e => resolveContextBossArt(e.kind, this.state, this.bossVisuals) && resolveBossLayer(e.kind, this.bossVisuals) === 'rear')) {
       const mode = this.bossVisuals?.rearFormation ?? 'B';
       const isF50 = this.state?.room === FLOOR50_BOSS_ROOM;
       const isF60OrF70 = this.state?.room === FLOOR60_BOSS_ROOM || this.state?.room === FLOOR70_BOSS_ROOM;
@@ -643,8 +739,8 @@ export class Battlefield {
             : mode === 'C'
               ? { boss: 225, m0: 190, m1: 260 }
               : { boss: 230, m0: 195, m1: 260 };
-      if (enemy && resolveBossLayer(enemy.kind, this.bossVisuals) === 'rear') return map.boss;
-      const minions = this.state.enemies.filter(e => !resolveBossArt(e.kind, this.bossVisuals) || resolveBossLayer(e.kind, this.bossVisuals) !== 'rear');
+      if (enemy && resolveContextBossArt(enemy.kind, this.state, this.bossVisuals) && resolveBossLayer(enemy.kind, this.bossVisuals) === 'rear') return map.boss;
+      const minions = this.state.enemies.filter(e => !resolveContextBossArt(e.kind, this.state, this.bossVisuals) || resolveBossLayer(e.kind, this.bossVisuals) !== 'rear');
       const mIdx = minions.findIndex(e => (enemy?.id !== undefined && e.id === enemy.id) || e.slot === slot);
       if (mIdx === 0) return map.m0;
       if (mIdx === 1) return map.m1;
@@ -811,8 +907,64 @@ export class Battlefield {
       }
     }
   }
+  captureBossActorCanvas(kind, x, baseline = 146, animContext = {}) {
+    const bossV2 = resolveContextBossArt(kind, this.state, this.bossVisuals);
+    if (!bossV2 || typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = 180;
+    const snapCtx = canvas.getContext?.('2d');
+    if (!snapCtx) return null;
+    const bounds = bossV2.opaqueBounds;
+    const v2Scale = resolveBossScale(kind, bossV2, this.bossVisuals);
+    const offset = resolveBossOffset(kind, this.bossVisuals);
+    const centerX = (bounds.minX + bounds.maxX + 1) / 2;
+    const v2Left = Math.round(x + offset.x - centerX * v2Scale);
+    const v2Top = Math.round(baseline + offset.baseline - (bounds.maxY + 1) * v2Scale);
+    const anim = evaluateBossAnimation(bossV2, {
+      frame: 0,
+      pose: 'idle',
+      progress: 0,
+      reducedMotion: Boolean(this.settings.reducedMotion),
+      now: 0,
+      colors: bossV2.colors,
+      ...animContext,
+    });
+    drawBossArt(snapCtx, bossV2, v2Left, v2Top, v2Scale, anim.materialOverrides, anim.partStates);
+    return canvas;
+  }
+  captureBossActorSnapshot(kind, x, baseline = 146, animContext = {}) {
+    const bossV2 = resolveContextBossArt(kind, this.state, this.bossVisuals);
+    if (!bossV2 || typeof document === 'undefined') return null;
+    if (!this._actorSnapCanvas) {
+      this._actorSnapCanvas = document.createElement('canvas');
+      this._actorSnapCanvas.width = 320;
+      this._actorSnapCanvas.height = 180;
+    }
+    const snapCtx = this._actorSnapCanvas.getContext?.('2d');
+    if (!snapCtx || typeof snapCtx.getImageData !== 'function') return null;
+    snapCtx.clearRect(0, 0, 320, 180);
+    const bounds = bossV2.opaqueBounds;
+    const v2Scale = resolveBossScale(kind, bossV2, this.bossVisuals);
+    const offset = resolveBossOffset(kind, this.bossVisuals);
+    const centerX = (bounds.minX + bounds.maxX + 1) / 2;
+    const v2Left = Math.round(x + offset.x - centerX * v2Scale);
+    const v2Top = Math.round(baseline + offset.baseline - (bounds.maxY + 1) * v2Scale);
+    const anim = evaluateBossAnimation(bossV2, {
+      frame: 0,
+      pose: 'idle',
+      progress: 0,
+      reducedMotion: Boolean(this.settings.reducedMotion),
+      now: 0,
+      colors: bossV2.colors,
+      ...animContext,
+    });
+    drawBossArt(snapCtx, bossV2, v2Left, v2Top, v2Scale, anim.materialOverrides, anim.partStates);
+    const img = snapCtx.getImageData(0, 0, 320, 180);
+    return { width: img.width, height: img.height, data: img.data, x: 0, y: 0 };
+  }
   getEnemyVisualMetrics(enemy, x, baseline = 146, bob = 0) {
-    const bossV2 = enemy ? resolveBossArt(enemy.kind, this.bossVisuals) : null;
+    const bossV2 = enemy ? resolveContextBossArt(enemy.kind, this.state, this.bossVisuals) : null;
     if (!bossV2) return null;
     return getBossVisualBounds(enemy.kind, x, baseline, bob, bossV2, this.bossVisuals);
   }
@@ -823,15 +975,24 @@ export class Battlefield {
     const positions = this.positions();
     // Check foreground actors first, then rear-layer bosses
     const ordered = (this.state?.enemies ?? [])
-      .map((enemy, i) => ({ enemy, i, rear: resolveBossLayer(enemy.kind, this.bossVisuals) === 'rear' ? 1 : 0 }))
+      .map((enemy, i) => ({
+        enemy,
+        i,
+        rear: this.resolveContextBossArt(enemy.kind) && resolveBossLayer(enemy.kind, this.bossVisuals) === 'rear' ? 1 : 0,
+      }))
       .sort((a, b) => a.rear - b.rear || a.i - b.i);
     for (const { enemy, i } of ordered) {
       if (enemy.hp <= 0) continue;
       const metrics = this.getEnemyVisualMetrics(enemy, positions[i], 146, 0);
       if (metrics) {
         if (x >= metrics.left && x <= metrics.right && y >= metrics.top && y <= metrics.bottom) return enemy.id;
-      } else if (y >= 70 && y <= 153 && Math.abs(positions[i] - x) < (LARGE_BOSS_KINDS.has(enemy.kind) || ['elite', 'sentinel'].includes(enemy.kind) ? 30 : 23)) {
-        return enemy.id;
+      } else {
+        const v2Profile = this.enemyArtV2 ? resolveEnemyV2Profile(enemy.kind) : null;
+        const minY = v2Profile ? Math.min(70, 146 - v2Profile.height - 4) : 70;
+        const halfW = LARGE_BOSS_KINDS.has(enemy.kind) || ['elite', 'sentinel'].includes(enemy.kind) ? 30 : 23;
+        if (y >= minY && y <= 153 && Math.abs(positions[i] - x) < halfW) {
+          return enemy.id;
+        }
       }
     }
     return null;
@@ -874,18 +1035,24 @@ export class Battlefield {
     for (let i = 0; i < 9; i++) r(22 + i * 7, 146 + (i % 2 ? -4 : 5), 2, 2, C[5]);
     r(309, 10, 2, 28, C[3]); r(301, 16, 8, 2, C[3]); r(301, 18, 2, 5, C[3]);
   }
-  sprite(kind, x, baseline, frame, pose = 'idle', hitElement = null, progress = 0, alternate = false, bossAnimContext = null) {
+  sprite(kind, x, baseline, frame, pose = 'idle', hitElement = null, progress = 0, alternate = false, bossAnimContext = null, timeMs = performance.now()) {
     const g = this.ctx;
     const boss = LARGE_BOSS_KINDS.has(kind);
     const originalKind = kind;
     kind = Object.hasOwn(middleSprites, kind) ? kind : (ENEMIES[kind]?.sprite ?? kind);
     const scale = boss ? 2 : 1;
-    const bossV2 = resolveBossArt(originalKind, this.bossVisuals);
+    const bossV2 = resolveContextBossArt(originalKind, this.state, this.bossVisuals);
     const suppressBob = Boolean(bossV2 && this.isFloor90NetherActor(originalKind));
     const bob = (this.settings.reducedMotion || suppressBob) ? 0 : [0, -1, 0, 1][frame % 4];
     const baseY = baseline - (boss ? 64 : 32) + bob;
     const left = Math.round(x - (boss ? 32 : 16));
     const r = (a, b, w, h, c) => { g.fillStyle = c; g.fillRect(left + a * scale, baseY + b * scale, w * scale, h * scale); };
+    if (originalKind === 'wizard' && this.summonVisuals?.playerArtV2) {
+      const playerPose = drawPlayerV2(g, x, baseline, {
+        pose, time: timeMs, progress, reducedMotion: Boolean(this.settings.reducedMotion), scale: 1,
+      });
+      if (playerPose !== false) return playerPose;
+    }
     if (pose === 'dead') {
       const width = Math.max(4, 18 - frame % 4 * 3);
       g.fillStyle = C[4]; g.fillRect(x - width / 2, baseline - 3, width, 3);
@@ -983,6 +1150,9 @@ export class Battlefield {
       }
       return;
     }
+    if (this.enemyArtV2 && drawEnemyV2(g, originalKind, x, baseline, {
+      pose, time: timeMs, progress, reducedMotion: Boolean(this.settings.reducedMotion), scale: 1,
+    })) return;
     const palette = originalKind === 'wizard' ? C : (alternate ? this.alternateEnemyPalette : this.enemyPalette) ?? C;
     const idleFrame = this.settings.reducedMotion ? 0 : frame;
     if (GEAR_RIFT_SPRITE_KINDS.has(originalKind)) {
@@ -1332,8 +1502,8 @@ export class Battlefield {
     const activeSummonAnimation = type === 'summon' || type === 'summon_invoke'
       || type === 'summon_strike' || type === 'summon_counter' || type === 'summon_relay'
       || type === 'summon_hit' || type === 'summon_break' || type === 'summon_depart'
-      || type === 'summon_rebirth'
-      || (type === 'attack' && event.target === 'summon' && (progress || 0) >= 0.62);
+      || type === 'summon_rebirth' || type === 'ward_absorb' || type === 'dodge'
+      || (!this.summonVisuals?.summonReactionV2 && type === 'attack' && event.target === 'summon' && (progress || 0) >= 0.62);
     if (activeSummonAnimation) return null;
     return prepareSummonIdlePose({
       creatureId: summon.creatureId, art,
@@ -1345,18 +1515,38 @@ export class Battlefield {
     });
   }
 
+  prepareSummonReactionPoseForEvent(summon, x, baseline, event, progress) {
+    const kind = this.summonVisuals?.summonReactionV2 ? summonReactionKind(event) : null;
+    if (!kind || !summon) return null;
+    const art = resolveSummonArt(summon.creatureId, this.summonVisuals);
+    if (!art?.pixels) return null;
+    const grand = Boolean(summon.isGrand);
+    const scale = resolveCreatureScale(summon.creatureId, grand, art, this.summonVisuals);
+    const height = Math.round(art.height * scale);
+    const lift = Math.min(Math.round(art.lift * scale), Math.max(0, baseline - height - 6));
+    return prepareSummonReactionPose({
+      creatureId: summon.creatureId, art,
+      left: x - Math.floor(art.width * scale / 2), top: baseline - height - lift,
+      scale, groundX: x, groundY: baseline, grand, kind, progress,
+      reducedMotion: this.settings.reducedMotion,
+      canvasWidth: this.ctx.canvas?.width ?? this.canvas?.width ?? 320,
+      canvasHeight: this.ctx.canvas?.height ?? this.canvas?.height ?? 180,
+    });
+  }
+
   drawSummonSprite(summon, x, baseline, frame, event, progress, deferHealth = false, targetX = null, targetY = 124, timeMs = performance.now()) {
     const g = this.ctx;
+    const reactionKind = this.summonVisuals?.summonReactionV2 ? summonReactionKind(event) : null;
     const summonBeingHit = event && (
       event.type === 'summon_hit'
-      || (event.type === 'attack' && event.target === 'summon' && (progress || 0) >= 0.62)
+      || (!this.summonVisuals?.summonReactionV2 && event.type === 'attack' && event.target === 'summon' && (progress || 0) >= 0.62)
     );
     const legacyLunge = (event && (event.type === 'summon_strike' || event.type === 'summon_relay') && !this.settings.reducedMotion)
       ? Math.round(Math.sin((progress || 0) * Math.PI) * 16)
       : (event && event.type === 'summon_counter' && !this.settings.reducedMotion)
         ? Math.round(Math.sin((progress || 0) * Math.PI) * 8)
         : (summonBeingHit && !this.settings.reducedMotion && frame % 2)
-          ? -3
+          && !reactionKind ? -3
           : 0;
     const cid = summon.creatureId;
     const art = resolveSummonArt(cid, this.summonVisuals);
@@ -1381,14 +1571,16 @@ export class Battlefield {
     const artTop = art ? baseline - artHeight - lift + (lift ? bob : 0) : null;
     const idleArtTop = art ? baseline - artHeight - lift : null;
     const artLeft = art ? sx - Math.floor(art.width * scale / 2) : sx;
+    const reactionPose = Battlefield.prototype.prepareSummonReactionPoseForEvent.call(this, summon, sx, baseline, event, progress);
     const idlePose = art ? Battlefield.prototype.prepareSummonIdlePoseForEvent.call(this, summon, art, {
       left: artLeft, top: idleArtTop, scale, groundX: sx, groundY: baseline,
     }, event, progress, timeMs) : null;
-    const posedArt = attackPose?.art ?? idlePose?.art ?? art;
+    const posedArt = attackPose?.art ?? reactionPose?.art ?? idlePose?.art ?? art;
     const renderArt = posedArt;
-    const renderLeft = attackPose?.left ?? idlePose?.left ?? artLeft;
-    const renderTop = attackPose?.top ?? idlePose?.top ?? artTop;
-    const renderScale = attackPose?.scale ?? idlePose?.scale ?? scale;
+    const renderLeft = attackPose?.left ?? reactionPose?.left ?? idlePose?.left ?? artLeft;
+    const renderTop = attackPose?.top ?? reactionPose?.top ?? idlePose?.top ?? artTop;
+    const renderScale = attackPose?.scale ?? reactionPose?.scale ?? idlePose?.scale ?? scale;
+    const renderGroundX = attackPose?.groundX ?? reactionPose?.groundX ?? idlePose?.groundX ?? sx;
     const elemImpact = ELEMENT_IMPACT[elem] || null;
     const fusion = fusionSummonPalette(elem, this.summonVisuals);
     const bodyColor = fusion?.shadow ?? elemImpact?.secondary ?? C[12];
@@ -1404,15 +1596,15 @@ export class Battlefield {
     const auraV2 = this.summonVisuals?.aura !== false && this.summonVisuals?.auraV2 && art
       ? prepareSummonAuraV2({
         element: elem, art: renderArt, left: renderLeft, top: renderTop,
-        scale: renderScale, groundX: attackPose?.groundX ?? idlePose?.groundX ?? sx, groundY: baseline, grand,
+        scale: renderScale, groundX: renderGroundX, groundY: baseline, grand,
         timeMs: this.summonVisuals?.previewTime ?? performance.now(),
         reducedMotion: this.settings.reducedMotion, intensity: invoke?.auraMix ?? 1,
       }) : null;
 
     // Summon shadow and aura
-    const auraRadius = art ? Math.round(art.width * scale * (lift ? 0.31 : 0.43)) : 12;
+    const auraRadius = renderArt ? Math.round(renderArt.width * renderScale * (lift ? 0.31 : 0.43)) : 12;
     g.fillStyle = C[0];
-    g.fillRect(sx - auraRadius, baseline - 1, auraRadius * 2, 3);
+    g.fillRect(renderGroundX - auraRadius, baseline - 1, auraRadius * 2, 3);
     drawSummonInvokeLayerV2(g, invoke, 'ground');
     drawSummonInvokeLayerV2(g, invoke, 'rear');
     if (auraV2) {
@@ -1420,8 +1612,8 @@ export class Battlefield {
       drawSummonAuraLayerV2(g, auraV2, 'rear');
     } else if (!invoke && this.summonVisuals?.aura !== false) {
       const auraColor = fusion?.aura ?? elementColor[elem] ?? C[28];
-      this.pixelEllipse(sx, baseline - 1, auraRadius, 3, auraColor, false);
-      if (grand) this.pixelEllipse(sx, baseline - 1, auraRadius + 3, 5, rimColor, false);
+      this.pixelEllipse(renderGroundX, baseline - 1, auraRadius, 3, auraColor, false);
+      if (grand) this.pixelEllipse(renderGroundX, baseline - 1, auraRadius + 3, 5, rimColor, false);
 
       // Ambient floating elemental sparks
       if (elem && !this.settings.reducedMotion) {
@@ -1439,9 +1631,10 @@ export class Battlefield {
       const bodyPalette = this.summonVisuals?.bodyPaletteV2 ? summonBodyPalettes.get(elem) : undefined;
       const productionFusion = this.summonVisuals?.creaturePaletteV2 ? fusionSummonPalettesV2.get(elem) : undefined;
       const palette = bodyPalette ?? fusion ?? productionFusion ?? fusedSummonPalettes.get(elem) ?? elemImpact;
-      const sourceArt = attackPose?.art.attackPoseSource ?? idlePose?.art.idlePoseSource ?? renderArt;
+      const sourceArt = reactionPose?.art.reactionPoseSource ?? attackPose?.art.attackPoseSource ?? idlePose?.art.idlePoseSource ?? renderArt;
       const sourceMark = palette ? elementVariantFor(sourceArt, palette).mark : null;
-      const mark = attackPose && sourceMark ? mapSummonAttackMark(renderArt, sourceMark)
+      const mark = reactionPose && sourceMark ? mapSummonReactionMark(renderArt, sourceMark)
+        : attackPose && sourceMark ? mapSummonAttackMark(renderArt, sourceMark)
         : idlePose?.art.idleSourceMap && sourceMark ? mapSummonIdleMark(renderArt, sourceMark) : null;
       drawSummonInvokeBodyV2(g, invoke, () => drawSummonArt(g, renderArt, renderLeft, renderTop, renderScale,
         palette, this.summonVisuals?.marks, mark));
@@ -1526,10 +1719,10 @@ export class Battlefield {
     const drawHealth = () => {
       if (invoke && invoke.reveal < 0.8) return;
       const hpRatio = Math.max(0, Math.min(1, summon.hp / Math.max(1, summon.maxHp)));
-      const hudArt = idlePose ? art : renderArt;
-      const hudScale = idlePose ? scale : renderScale;
-      const hudLeft = idlePose ? artLeft : renderLeft;
-      const hudTop = idlePose ? artTop : renderTop;
+      const hudArt = idlePose || reactionPose ? art : renderArt;
+      const hudScale = idlePose || reactionPose ? scale : renderScale;
+      const hudLeft = idlePose || reactionPose ? artLeft : renderLeft;
+      const hudTop = idlePose || reactionPose ? artTop : renderTop;
       const barW = hudArt ? Math.min(32, Math.max(20, Math.round(hudArt.width * hudScale * 0.65))) : 20;
       const barX = hudArt ? Math.round(hudLeft + (hudArt.width * hudScale - barW) / 2) : sx - Math.floor(barW / 2);
       const barY = hudTop === null ? baseline - 28 + bob : Math.max(5, hudTop - 5);
@@ -1566,6 +1759,7 @@ export class Battlefield {
       ? contactDelay + Math.max(0, localTime - contactDelay - hitStop) * (segment - contactDelay) / (segment - contactDelay - hitStop)
       : localTime;
     const progress = playing ? Math.max(0, Math.min(1, animationTime / segment)) : 0;
+    const fraction = this.settings.reducedMotion ? 1 : progress;
     const frame = Math.floor((held ? this.started + eventStart + contactDelay : now) / 180) % 4;
 
     let shakeX = 0;
@@ -1647,6 +1841,11 @@ export class Battlefield {
     const showSummon = activeSummon && (activeSummon.hp > 0
       || ['summon_hit', 'summon_counter', 'summon_rebirth', 'summon_break'].includes(event?.type));
     const summonAnchor = getSummonAnchor(activeSummon, this.summonVisuals);
+    const summonReaction = this.summonVisuals?.summonReactionV2 ? summonReactionKind(event) : null;
+    const summonReactionPose = showSummon && summonReaction
+      ? Battlefield.prototype.prepareSummonReactionPoseForEvent.call(this, activeSummon,
+        summonAnchor.x, summonAnchor.baseline, event, progress)
+      : null;
     const grandBehindActors = showSummon && activeSummon.isGrand
       && Object.hasOwn(SUMMON_ART, activeSummon.creatureId);
     const drawGrandHealth = grandBehindActors
@@ -1660,7 +1859,8 @@ export class Battlefield {
       const castColor = elementColor[event?.element] ?? (event?.type === 'heal' ? C[26] : event?.type === 'shield' ? C[27] : C[31]);
       this.drawCasterAura(now, castColor, progress);
     }
-    this.sprite('wizard', 51 + (playerPose === 'hurt' && !this.settings.reducedMotion && frame % 2 ? -2 : 0), 147, frame, playerPose, null, progress);
+    const playerX = 51 + (!this.summonVisuals?.playerArtV2 && playerPose === 'hurt' && !this.settings.reducedMotion && frame % 2 ? -2 : 0);
+    this.sprite('wizard', playerX, 147, frame, playerPose, null, progress, false, null, now);
 
     let protection = snap?.protection ?? shieldProtection(this.state?.player.shield);
     if (event?.type === 'shield') protection = event.protection ?? event;
@@ -1711,13 +1911,66 @@ export class Battlefield {
       this.drawSummonSprite(activeSummon, summonAnchor.x, summonAnchor.baseline, frame, event, progress, false, attackTargetX, attackTargetY, now);
     }
 
+    const renderEternityPhase = snap ? (snap.eternityPhase ?? 1) : (this.state?.eternityPhase ?? 1);
+    const isF100V2 = isFloor100BossRoomV2(this.state, this.bossVisuals);
+    const isEternityAbsorption = Boolean(isF100V2 && event?.type === 'boss-phase' && event.sourceKind === 'eternity_overlord' && event.phase === 2 && event.mode === 'prism');
+    const isEternityRebirth = Boolean(isF100V2 && event?.type === 'boss-phase' && event.sourceKind === 'eternity_reborn' && event.phase === 3 && event.mode === 'reborn' && this.rebirthPlan);
+    const f100Enemies = isF100V2 ? (this.state?.enemies ?? []) : [];
+    const f100BossIdx = isF100V2 ? f100Enemies.findIndex(e => e.kind === 'eternity_overlord') : -1;
+    const f100BossE = f100BossIdx >= 0 ? f100Enemies[f100BossIdx] : null;
+    const f100BossMetrics = f100BossE ? this.getEnemyVisualMetrics(f100BossE, positions[f100BossIdx], 146, 0) : null;
+    const f100ActorById = id => {
+      const idx = f100Enemies.findIndex(e => e.id === id);
+      if (idx < 0) return null;
+      const e = f100Enemies[idx];
+      const m = this.getEnemyVisualMetrics(e, positions[idx], 146, 0);
+      return {
+        id: e.id,
+        kind: e.kind,
+        alive: snap ? !dead?.has(e.id) : e.hp > 0,
+        x: m?.chest?.x ?? positions[idx],
+        y: m?.chest?.y ?? (e.kind === 'eternity_overlord' ? 76 : 116),
+      };
+    };
+    const f100CouncilOpts = isF100V2 && f100BossE ? {
+      room: this.state.room,
+      rift: Boolean(this.state.rift),
+      phase: renderEternityPhase,
+      boss: {
+        id: f100BossE.id,
+        kind: f100BossE.kind,
+        alive: snap ? !dead?.has(f100BossE.id) : f100BossE.hp > 0,
+        x: f100BossMetrics?.chest?.x ?? positions[f100BossIdx],
+        y: f100BossMetrics?.chest?.y ?? 76,
+      },
+      members: f100Enemies.filter(m => m.id !== f100BossE.id).map(m => f100ActorById(m.id)).filter(Boolean),
+      source: event?.source ? f100ActorById(event.source) : null,
+      target: event?.target ? f100ActorById(event.target) : null,
+    } : null;
+
+    const f100SwapPair = isF100V2 && event?.type === 'swap' && f100CouncilOpts && classifyCouncilEvent(event, f100CouncilOpts) === 'swap'
+      ? new Set([event.source, event.target])
+      : null;
+    const f100AbsorbedSet = isEternityAbsorption && Array.isArray(event.absorbedIds) ? new Set(event.absorbedIds) : null;
+
+    const councilGuardMembers = (f100CouncilOpts && renderEternityPhase === 1 && !isEternityAbsorption && !isEternityRebirth)
+      ? councilProtectionState(f100CouncilOpts)
+      : [];
+    const councilGuardData = councilGuardMembers.length > 0
+      ? { boss: f100CouncilOpts.boss, members: councilGuardMembers }
+      : null;
+
     const renderNetherPhase = snap ? (snap.netherPhase ?? 1) : (this.state?.netherPhase ?? 1);
     const netherBossActor = this.state?.enemies?.find(e => e.kind === 'nether_dread_lord');
     const renderNetherPurged = snap
       ? Boolean(snap.netherPurged)
       : Boolean(netherBossActor && (netherBossActor.netherPurgeUntil ?? 0) >= (this.state?.turn ?? 0));
     const orderedEnemies = this.state ? this.state.enemies
-      .map((enemy, index) => ({ enemy, index, rear: resolveBossLayer(enemy.kind, this.bossVisuals) === 'rear' ? 0 : 1 }))
+      .map((enemy, index) => ({
+        enemy,
+        index,
+        rear: resolveContextBossArt(enemy.kind, this.state, this.bossVisuals) && resolveBossLayer(enemy.kind, this.bossVisuals) === 'rear' ? 0 : 1,
+      }))
       .sort((a, b) => a.rear - b.rear || a.index - b.index) : [];
     let netherChainsDrawn = false;
     orderedEnemies.forEach(({ enemy, index, rear }) => {
@@ -1746,6 +1999,10 @@ export class Battlefield {
             ? event.pierceHit.damage
             : (!event?.pierceHit && impact && event?.target === enemy.id ? event.damage : null);
       const gone = (snap ? Boolean(dead?.has(enemy.id)) : enemy.hp <= 0) || Boolean(landed?.killed);
+      const suppressedByF100Cinematic = (isEternityAbsorption && (enemy.kind === 'eternity_overlord' || f100AbsorbedSet?.has(enemy.id)))
+        || (isEternityRebirth && (enemy.kind === 'eternity_reborn' || enemy.kind === 'eternity_overlord'))
+        || Boolean(f100SwapPair?.has(enemy.id) && !this.settings.reducedMotion);
+      if (suppressedByF100Cinematic) return;
       g.fillStyle = C[0]; g.fillRect(x - 14, 146, 28, 3);
       const hurt = (event?.type === 'damage' && event.target === enemy.id && event.amount > 0)
         || Boolean(landed?.amount)
@@ -1810,7 +2067,7 @@ export class Battlefield {
         g.restore();
       }
 
-      const bossV2Art = !gone && v2Metrics ? resolveBossArt(enemy.kind, this.bossVisuals) : null;
+      const bossV2Art = !gone && v2Metrics ? resolveContextBossArt(enemy.kind, this.state, this.bossVisuals) : null;
       const bossGrounded = Boolean(enemy.groundedUntil >= (this.state?.turn ?? 0));
       const bossReflecting = Boolean(event?.type === 'storm-static' && event.source === enemy.id);
       const bossSupporting = Boolean(
@@ -1833,7 +2090,50 @@ export class Battlefield {
         }
         : NETHER_PILLAR_KINDS.includes(enemy.kind)
           ? { supporting: bossSupporting, charging, attacking, hurt, now }
-          : null;
+          : (enemy.kind === 'eternity_overlord' || enemy.kind === 'eternity_reborn')
+            ? {
+              eternityPhase: enemy.kind === 'eternity_reborn' ? 3 : renderEternityPhase,
+              affinity: enemy.affinity ?? 'ice',
+              supporting: bossSupporting,
+              charging,
+              attacking,
+              hurt,
+              now,
+            }
+            : enemy.kind === 'chaos_weaver'
+              ? {
+                swapping: Boolean(event?.type === 'swap' && (event.source === enemy.id || event.target === enemy.id)),
+                charging,
+                attacking,
+                hurt,
+                now,
+              }
+              : enemy.kind === 'aeon_oracle'
+                ? { supporting: bossSupporting, charging, attacking, hurt, now }
+                : null;
+      if (isF100V2 && enemy.kind === 'eternity_overlord' && councilGuardData && !gone) {
+        const hitPayload = event?.type === 'blast' ? blastHit?.damage : (event?.type === 'projectile' ? event.damage : event);
+        const councilHit = Boolean(impact && hitPayload && f100CouncilOpts && classifyCouncilEvent(hitPayload, f100CouncilOpts) === 'guard');
+        drawEternityCouncil(g, 'guard', councilHit ? fraction : ((now / 1600) % 1), {
+          ...councilGuardData,
+          layer: 'rear',
+          hit: councilHit,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+          width: 320,
+          height: 180,
+        });
+      }
+      const isRewindActive = Boolean(isF100V2 && !gone && v2Metrics && isChronoRewindEvent(event, enemy));
+      if (isRewindActive) {
+        drawChronoRewind(g, fraction, {
+          x: v2Metrics.chest.x,
+          y: v2Metrics.chest.y,
+          width: 320,
+          height: 180,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+          layer: 'rear',
+        });
+      }
       if (bossV2Art) {
         const v2Anim = evaluateBossAnimation(bossV2Art, {
           frame,
@@ -1873,13 +2173,62 @@ export class Battlefield {
       this._bossArmor = null;
       this._bossGrounded = false;
       this._bossReflecting = false;
+      if (isRewindActive) {
+        drawChronoRewind(g, fraction, {
+          x: v2Metrics.chest.x,
+          y: v2Metrics.chest.y,
+          width: 320,
+          height: 180,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+          layer: 'front',
+        });
+      }
+      if (isF100V2 && enemy.kind === 'eternity_overlord' && councilGuardData && !gone) {
+        const hitPayload = event?.type === 'blast' ? blastHit?.damage : (event?.type === 'projectile' ? event.damage : event);
+        const councilHit = Boolean(impact && hitPayload && f100CouncilOpts && classifyCouncilEvent(hitPayload, f100CouncilOpts) === 'guard');
+        drawEternityCouncil(g, 'guard', councilHit ? fraction : ((now / 1600) % 1), {
+          ...councilGuardData,
+          layer: 'front',
+          hit: councilHit,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+          width: 320,
+          height: 180,
+        });
+      }
+      if (isF100V2 && !gone && v2Metrics && (enemy.kind === 'eternity_overlord' || enemy.kind === 'eternity_reborn') && renderEternityPhase >= 2) {
+        if (!this.shiftCueState || this.shiftCueState.id !== enemy.id) {
+          this.shiftCueState = { id: enemy.id, affinity: enemy.affinity, anim: null };
+        } else if (!isEternityAbsorption && !isEternityRebirth && isElementalShift({ id: enemy.id, kind: enemy.kind, affinity: this.shiftCueState.affinity }, enemy)) {
+          this.shiftCueState = {
+            id: enemy.id,
+            affinity: enemy.affinity,
+            anim: { fromAffinity: this.shiftCueState.affinity, toAffinity: enemy.affinity, startMs: now },
+          };
+        }
+        if (this.shiftCueState.anim) {
+          const shiftFrac = (now - this.shiftCueState.anim.startMs) / 600;
+          if (shiftFrac >= 0 && shiftFrac < 1) {
+            drawElementalShift(g, shiftFrac, {
+              sourceX: v2Metrics.chest.x,
+              sourceY: v2Metrics.chest.y,
+              fromAffinity: this.shiftCueState.anim.fromAffinity,
+              toAffinity: this.shiftCueState.anim.toAffinity,
+              shiftAt: 0.5,
+              reducedMotion: Boolean(this.settings.reducedMotion),
+            });
+          } else if (shiftFrac >= 1) {
+            this.shiftCueState.anim = null;
+          }
+        }
+      }
 
       if ((enemy.hp > 0 && !dead?.has(enemy.id)) && ward > 0) {
         const isLargeBoss = LARGE_BOSS_KINDS.has(enemy.kind);
         const bossArt = enemy.kind === 'elite' && this.spriteArt.elite?.complete && this.spriteArt.elite.naturalWidth
           ? spriteFrame('elite', pose, frame, artProgress, this.settings.reducedMotion) : null;
         const wardX = v2Metrics ? v2Metrics.ward.centerX : bossArt ? Math.round(spriteX - bossArt.pivot[0] + bossArt.wardCenter[0]) : x;
-        const top = v2Metrics ? Math.max(6, v2Metrics.ward.top - 4) : bossArt ? Math.round(146 - bossArt.pivot[1] + bossArt.wardCenter[1] - 30) : isLargeBoss ? 74 : 103;
+        const v2Profile = !v2Metrics && !bossArt && this.enemyArtV2 ? resolveEnemyV2Profile(enemy.kind) : null;
+        const top = v2Metrics ? Math.max(6, v2Metrics.ward.top - 4) : bossArt ? Math.round(146 - bossArt.pivot[1] + bossArt.wardCenter[1] - 30) : v2Profile ? Math.min(isLargeBoss ? 74 : 103, Math.max(6, 146 - v2Profile.height - 6)) : isLargeBoss ? 74 : 103;
         const width = v2Metrics ? v2Metrics.ward.width : this.enemyWardWidth(enemy);
         const remaining = wardHit ? wardHitRemaining : ward;
         if (remaining) this.drawEnemyWard(wardX, top, width, remaining);
@@ -1980,7 +2329,6 @@ export class Battlefield {
     }
 
     if (event) {
-      const fraction = this.settings.reducedMotion ? 1 : progress;
       const x = eventX;
       if (event.type === 'shield-delay' || (event.type === 'shield' && event.delayed)) {
         this.drawDelaySigil(51, event.delayed ? 91 : 109, progress, event.delayed);
@@ -1995,7 +2343,19 @@ export class Battlefield {
         const netherKind = event.type === 'ward-grant' && resolveBossArt('nether_dread_lord', this.bossVisuals)
           ? netherEventKind(event, id => this.state.enemies.find(e => e.id === id)?.kind ?? null)
           : null;
-        if (netherKind === 'ward-transfer') {
+        const councilWard = event.type === 'ward-grant' && isF100V2 && f100CouncilOpts && classifyCouncilEvent(event, f100CouncilOpts) === 'ward';
+        if (councilWard) {
+          const srcIdx = this.state.enemies.findIndex(e => e.id === event.source);
+          const srcMetrics = srcIdx >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[srcIdx], positions[srcIdx], 146, 0) : null;
+          const dstMetrics = targetIndex >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[targetIndex], targetX, 146, 0) : null;
+          drawEternityCouncil(g, 'ward', fraction, {
+            source: srcMetrics?.chest ?? { x: positions[srcIdx] ?? x, y: 112 },
+            target: dstMetrics?.chest ?? { x: targetX, y: 96 },
+            reducedMotion: Boolean(this.settings.reducedMotion),
+            width: 320,
+            height: 180,
+          });
+        } else if (netherKind === 'ward-transfer') {
           const srcIdx = this.state.enemies.findIndex(e => e.id === event.source);
           const srcMetrics = srcIdx >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[srcIdx], positions[srcIdx], 146, 0) : null;
           const dstMetrics = targetIndex >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[targetIndex], targetX, 146, 0) : null;
@@ -2302,11 +2662,131 @@ export class Battlefield {
         }
       }
 
+      if (f100SwapPair && !this.settings.reducedMotion) {
+        const srcEnemy = this.state.enemies.find(e => e.id === event.source);
+        const dstEnemy = this.state.enemies.find(e => e.id === event.target);
+        if (srcEnemy && dstEnemy) {
+          const srcIdx = this.state.enemies.indexOf(srcEnemy);
+          const dstIdx = this.state.enemies.indexOf(dstEnemy);
+          const srcFromX = positions[srcIdx];
+          const dstFromX = positions[dstIdx];
+          const srcToX = this.enemyX(srcEnemy, event.sourceSlot);
+          const dstToX = this.enemyX(dstEnemy, event.slot);
+          const srcMetricsFrom = this.getEnemyVisualMetrics(srcEnemy, srcFromX, 146, 0);
+          const dstMetricsFrom = this.getEnemyVisualMetrics(dstEnemy, dstFromX, 146, 0);
+          const actors = [
+            {
+              id: srcEnemy.id,
+              from: { x: srcFromX, y: srcMetricsFrom?.bodyCenter?.y ?? 112 },
+              to: { x: srcToX, y: srcMetricsFrom?.bodyCenter?.y ?? 112 },
+              width: srcMetricsFrom?.width ?? 60,
+              height: srcMetricsFrom?.height ?? 60,
+            },
+            {
+              id: dstEnemy.id,
+              from: { x: dstFromX, y: dstMetricsFrom?.bodyCenter?.y ?? 112 },
+              to: { x: dstToX, y: dstMetricsFrom?.bodyCenter?.y ?? 112 },
+              width: dstMetricsFrom?.width ?? 60,
+              height: dstMetricsFrom?.height ?? 60,
+            },
+          ];
+          if (!this.swapSnapshotCache || this.swapSnapshotCache.eventIndex !== eventIndex) {
+            const s1 = this.captureBossActorCanvas(srcEnemy.kind, srcFromX, 146, { swapping: true });
+            const s2 = this.captureBossActorCanvas(dstEnemy.kind, dstFromX, 146, { eternityPhase: renderEternityPhase, affinity: dstEnemy.affinity ?? 'ice' });
+            this.swapSnapshotCache = {
+              eventIndex,
+              snaps: {
+                [srcEnemy.id]: s1,
+                [dstEnemy.id]: s2,
+              },
+            };
+          }
+          drawEternityCouncil(g, 'swap', progress, { layer: 'rear', actors, reducedMotion: false, width: 320, height: 180 });
+          for (const actor of actors) {
+            const snapImg = this.swapSnapshotCache.snaps[actor.id];
+            if (snapImg) drawCouncilSwapActor(g, snapImg, actor, progress, false);
+          }
+          drawEternityCouncil(g, 'swap', progress, { layer: 'front', actors, reducedMotion: false, width: 320, height: 180 });
+        }
+      }
+
       if (event.type === 'boss-phase') {
         const wave = Math.sin(fraction * Math.PI);
         const isNether = event.sourceKind === 'nether_dread_lord';
         const isEternity = event.sourceKind === 'eternity_overlord' || event.sourceKind === 'eternity_reborn';
-        if (!this.settings.reducedMotion) {
+        let suppressPhasePopup = false;
+        if (isEternityAbsorption) {
+          const bossIdx = this.state.enemies.findIndex(e => e.kind === 'eternity_overlord');
+          const boss = bossIdx >= 0 ? this.state.enemies[bossIdx] : null;
+          const bossX = bossIdx >= 0 ? positions[bossIdx] : 228;
+          const bossMetrics = boss ? this.getEnemyVisualMetrics(boss, bossX, 146, 0) : null;
+          if (!this.councilSnapshotCache || this.councilSnapshotCache.eventIndex !== eventIndex) {
+            const oldRaw = boss ? this.captureBossActorSnapshot('eternity_overlord', bossX, 146, { eternityPhase: 1, affinity: 'ice' }) : null;
+            const newRaw = boss ? this.captureBossActorSnapshot('eternity_overlord', bossX, 146, { eternityPhase: 2, affinity: boss.affinity ?? 'earth' }) : null;
+            const sources = (Array.isArray(event.absorbedIds) ? event.absorbedIds : []).map(id => {
+              const idx = this.state.enemies.findIndex(e => e.id === id);
+              if (idx < 0) return null;
+              const ally = this.state.enemies[idx];
+              const ax = positions[idx];
+              const aMetrics = this.getEnemyVisualMetrics(ally, ax, 146, 0);
+              const raw = this.captureBossActorSnapshot(ally.kind, ax, 146, {});
+              return {
+                id,
+                x: aMetrics?.chest?.x ?? ax,
+                y: aMetrics?.chest?.y ?? 116,
+                affinity: ally.affinity ?? 'lightning',
+                snapshot: raw ? prepareCouncilSnapshot(raw) : null,
+              };
+            }).filter(Boolean);
+            this.councilSnapshotCache = {
+              eventIndex,
+              oldSnapshot: oldRaw ? prepareCouncilSnapshot(oldRaw) : null,
+              newSnapshot: newRaw ? prepareCouncilSnapshot(newRaw) : null,
+              sources,
+            };
+          }
+          drawCouncilAbsorption(g, fraction, {
+            oldSnapshot: this.councilSnapshotCache.oldSnapshot,
+            newSnapshot: this.councilSnapshotCache.newSnapshot,
+            sources: this.councilSnapshotCache.sources,
+            absorbed: event.absorbed ?? 0,
+            centerX: bossMetrics?.chest?.x ?? bossX,
+            centerY: bossMetrics?.chest?.y ?? 76,
+            width: 320,
+            height: 180,
+            reducedMotion: Boolean(this.settings.reducedMotion),
+          });
+        } else if (isEternityRebirth) {
+          const localElapsed = Math.max(0, elapsed - this.eventStart(eventIndex));
+          const rebirthP = rebirthProgressFromElapsed(localElapsed, this.rebirthPlan.timing);
+          const stage = rebirthStage(rebirthP, Boolean(this.settings.reducedMotion));
+          if (stage !== 'reveal') suppressPhasePopup = true;
+          const rebornIdx = this.state.enemies.findIndex(e => e.kind === 'eternity_reborn');
+          const reborn = rebornIdx >= 0 ? this.state.enemies[rebornIdx] : null;
+          const rebornX = rebornIdx >= 0 ? positions[rebornIdx] : 224;
+          const rebornMetrics = reborn ? this.getEnemyVisualMetrics(reborn, rebornX, 146, 0) : null;
+          if (!this.rebirthSnapshotCache || this.rebirthSnapshotCache.eventIndex !== eventIndex) {
+            const out = event.outgoingBoss;
+            const outX = out ? this.enemyX({ kind: out.kind, slot: out.slot }, out.slot) : 224;
+            const oldRaw = out ? this.captureBossActorSnapshot(out.kind, outX, 146, { eternityPhase: out.eternityPhase ?? 2, affinity: out.affinity ?? 'ice' }) : null;
+            const newRaw = reborn ? this.captureBossActorSnapshot('eternity_reborn', rebornX, 146, { eternityPhase: 3, affinity: reborn.affinity ?? 'earth' }) : null;
+            this.rebirthSnapshotCache = {
+              eventIndex,
+              oldSnapshot: oldRaw ? prepareRebirthSnapshot(oldRaw) : null,
+              newSnapshot: newRaw ? prepareRebirthSnapshot(newRaw) : null,
+            };
+          }
+          drawEternityRebirth(g, rebirthP, {
+            oldSnapshot: this.rebirthSnapshotCache.oldSnapshot,
+            newSnapshot: this.rebirthSnapshotCache.newSnapshot,
+            centerX: rebornMetrics?.chest?.x ?? rebornX,
+            centerY: rebornMetrics?.chest?.y ?? 82,
+            groundY: 146,
+            width: 320,
+            height: 180,
+            reducedMotion: Boolean(this.settings.reducedMotion),
+          });
+        } else if (!this.settings.reducedMotion) {
           if (isEternity) {
             const isReborn = event.sourceKind === 'eternity_reborn' || event.mode === 'reborn';
             const surgeH = Math.round(wave * (isReborn ? 58 : 48));
@@ -2377,7 +2857,9 @@ export class Battlefield {
             : '🐙 มหาเทพอสูรแห่งห้วงบาดาลปรากฏร่างจริง!';
         const phaseFg = isEternity ? C[9] : isNether ? C[31] : C[9];
         const phaseEdge = isEternity ? C[22] : isNether ? C[18] : C[25];
-        this.drawFloatingPopup(160, 72 - Math.round(fraction * 10), phasePopup, phaseFg, phaseEdge);
+        if (!suppressPhasePopup) {
+          this.drawFloatingPopup(160, 72 - Math.round(fraction * 10), phasePopup, phaseFg, phaseEdge);
+        }
       }
 
       if (event.type === 'mirror-reflect') {
@@ -2460,18 +2942,62 @@ export class Battlefield {
       }
 
       if (event.type === 'cosmic-echo') {
-        const travel = Math.min(1, fraction / 0.65);
-        const rx = Math.round(x + (51 - x) * travel);
-        const ry = Math.round(112 - Math.sin(travel * Math.PI) * 14);
-        this.pixelBolt(x - 10, 112, rx, ry, now * 0.07, C[31], C[23]);
-        this.pixelDiamond(rx, ry, 5, C[22], C[31]);
-        this.pixelCircle(rx, ry, 2, C[9], true);
-        if (impact) {
-          this.drawElementalImpactFlash(51, 124, 'lightning', fraction);
-          this.drawHitBurstVfx(51, 124, C[31], Math.min(1, (fraction - 0.55) / 0.45), 'lightning', now);
-          if (!this.hpNumbersInHud || !event.amount) {
+        const usePrismaticV2 = isF100V2 && isPrismaticReflectionEvent(event);
+        if (usePrismaticV2) {
+          const srcIdx = this.state.enemies.findIndex(e => e.id === event.source);
+          const srcMetrics = srcIdx >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[srcIdx], positions[srcIdx], 146, 0) : null;
+          let reflectedElement = 'neutral';
+          for (let j = eventIndex - 1; j >= 0; j--) {
+            const prevEv = this.events[j];
+            if (prevEv?.element && (prevEv.target === event.source || prevEv.hits?.some(h => h.damage?.target === event.source))) {
+              reflectedElement = prevEv.element;
+              break;
+            }
+          }
+          drawPrismaticReflection(g, fraction, {
+            sourceX: srcMetrics?.chest?.x ?? x,
+            sourceY: srcMetrics?.chest?.y ?? 92,
+            targetX: 51,
+            targetY: 124,
+            impactProgress: 0.65,
+            reducedMotion: Boolean(this.settings.reducedMotion),
+            reflectedElement,
+            width: 320,
+            height: 180,
+          });
+          if (impact && (!this.hpNumbersInHud || !event.amount)) {
             this.drawFloatingPopup(51, 90 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `🌌 สะท้อนดาราจักร −${event.amount} HP` : '🌌 สะท้อนติดโล่!', C[31], C[22]);
           }
+        } else {
+          const travel = Math.min(1, fraction / 0.65);
+          const rx = Math.round(x + (51 - x) * travel);
+          const ry = Math.round(112 - Math.sin(travel * Math.PI) * 14);
+          this.pixelBolt(x - 10, 112, rx, ry, now * 0.07, C[31], C[23]);
+          this.pixelDiamond(rx, ry, 5, C[22], C[31]);
+          this.pixelCircle(rx, ry, 2, C[9], true);
+          if (impact) {
+            this.drawElementalImpactFlash(51, 124, 'lightning', fraction);
+            this.drawHitBurstVfx(51, 124, C[31], Math.min(1, (fraction - 0.55) / 0.45), 'lightning', now);
+            if (!this.hpNumbersInHud || !event.amount) {
+              this.drawFloatingPopup(51, 90 - Math.round((fraction - 0.5) * 16), event.amount > 0 ? `🌌 สะท้อนดาราจักร −${event.amount} HP` : '🌌 สะท้อนติดโล่!', C[31], C[22]);
+            }
+          }
+        }
+      }
+
+      if (event.type === 'prism-shatter' && isF100V2) {
+        const tgtIdx = this.state.enemies.findIndex(e => e.id === event.target);
+        const tgtEnemy = tgtIdx >= 0 ? this.state.enemies[tgtIdx] : null;
+        if (tgtEnemy && isPrismShatterEvent(event, tgtEnemy)) {
+          const tgtMetrics = this.getEnemyVisualMetrics(tgtEnemy, positions[tgtIdx], 146, 0);
+          drawPrismShatter(g, fraction, {
+            x: tgtMetrics?.chest?.x ?? positions[tgtIdx] ?? x,
+            y: tgtMetrics?.chest?.y ?? 92,
+            breakAt: 0.42,
+            reducedMotion: Boolean(this.settings.reducedMotion),
+            width: 320,
+            height: 180,
+          });
         }
       }
 
@@ -2673,7 +3199,12 @@ export class Battlefield {
 
       if (event.type === 'summon_hit') {
         const frac = this.settings.reducedMotion ? 1 : progress;
-        if (!this.settings.reducedMotion) {
+        if (summonReactionPose) {
+          drawSummonReactionFx(g, summonReactionPose, {
+            kind: summonReaction, progress, reducedMotion: this.settings.reducedMotion,
+            contactX: event.contactX, contactY: event.contactY,
+          });
+        } else if (!this.settings.reducedMotion) {
           this.drawHitBurstVfx(summonAnchor.x, summonAnchor.baseline - 15, C[18], frac, 'fire', now, 0.8);
         }
         if (event.damage > 0) {
@@ -2683,11 +3214,19 @@ export class Battlefield {
 
       if (event.type === 'dodge' && event.target === 'summon') {
         const frac = this.settings.reducedMotion ? 1 : progress;
+        if (summonReactionPose) drawSummonReactionFx(g, summonReactionPose, {
+          kind: summonReaction, progress, reducedMotion: this.settings.reducedMotion,
+          contactX: event.contactX, contactY: event.contactY,
+        });
         this.drawFloatingPopup(summonAnchor.x, summonAnchor.baseline - 45 - Math.round(frac * 14), '💨 หลบพ้น!', C[9], C[27]);
       }
 
       if (event.type === 'ward_absorb' && event.target === 'summon') {
         const frac = this.settings.reducedMotion ? 1 : progress;
+        if (summonReactionPose) drawSummonReactionFx(g, summonReactionPose, {
+          kind: summonReaction, progress, reducedMotion: this.settings.reducedMotion,
+          contactX: event.contactX, contactY: event.contactY,
+        });
         this.drawFloatingPopup(summonAnchor.x, summonAnchor.baseline - 45 - Math.round(frac * 14), '🛡️ ม่านรับไว้!', '#f9eeff', '#b275f0');
       }
 
@@ -4032,6 +4571,45 @@ export class Battlefield {
 
     const hitsSummon = event.target === 'summon';
     const playerShieldHit = (event.playerAbsorbed ?? (hitsSummon ? 0 : (event.absorbed ?? 0))) > 0;
+    if (isFloor100BossRoomV2(this.state, this.bossVisuals) && (event.sourceKind === 'eternity_overlord' || event.sourceKind === 'eternity_reborn')) {
+      const srcIdx = this.state?.enemies?.findIndex(e => e.id === event.source) ?? -1;
+      const srcMetrics = srcIdx >= 0 ? this.getEnemyVisualMetrics(this.state.enemies[srcIdx], enemyX, 146, 0) : null;
+      const chest = srcMetrics?.chest ?? { x: enemyX, y: 82 };
+      const targetY = hitsSummon ? 124 : 120;
+      if (event.sourceKind === 'eternity_reborn' && event.ultimate) {
+        drawEternitySupernova(g, fraction, {
+          sourceX: chest.x,
+          sourceY: chest.y,
+          targetX: playerX,
+          targetY,
+          groundY: 146,
+          width: 320,
+          height: 180,
+          impactProgress: 0.62,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+        });
+        return;
+      }
+      const waveKind = classifyEternityWave(event, {
+        room: this.state?.room,
+        rift: Boolean(this.state?.rift),
+        turn: this.presentedTurn ?? this.state?.turn ?? 1,
+      });
+      if (waveKind) {
+        drawEternityWave(g, waveKind, fraction, {
+          sourceX: chest.x,
+          sourceY: chest.y,
+          targetX: playerX,
+          targetY,
+          width: 320,
+          height: 180,
+          impactProgress: 0.62,
+          reducedMotion: Boolean(this.settings.reducedMotion),
+          manaDrain: event.manaDrain ?? 0,
+        });
+        return;
+      }
+    }
     const netherAttackKind = resolveBossArt(event.sourceKind, this.bossVisuals)
       ? netherEventKind(event, id => this.state?.enemies?.find(e => e.id === id)?.kind ?? null)
       : null;

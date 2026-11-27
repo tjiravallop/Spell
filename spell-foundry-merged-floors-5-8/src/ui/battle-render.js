@@ -1,6 +1,7 @@
 import { WORDS, BATTLE_LIMITED_WORDS, CREATURE_WORDS, elementFamily, fireShieldLayers, SECOND_TIER_ELEMENTS, FUSED_ELEMENTS, ELEMENT_VULNERABILITY, ELEMENT_SECONDARY_VULNERABILITY, ELEMENT_LABELS, ELEMENT_GLYPHS, ELEMENT_ICONS } from '../words.js';
 import {
   getHandLimit,
+  getCardUpgradeLevel,
   battleSpellCost,
   isAscensionActive,
   getMaxMana,
@@ -43,7 +44,7 @@ import { RIFT_EXPOSED_BONUS, isRiftBossExposed } from '../upper-tower.js';
 import { MIDDLE_ENEMIES } from '../middle-tower.js';
 import { getBattleStory } from '../story.js';
 import { getSummonHudLayout } from '../render.js';
-import { resolveBossArt } from '../boss-art-v2.js';
+import { resolveContextBossArt } from '../boss-art-v2.js';
 import { resolveBossLayer } from '../boss-sizes.js';
 import { ENEMY_TRAITS } from '../enemy-traits.js';
 import { canFormCardsInHand, canFormPhraseInHand, describeFormulaEffect } from '../combos.js';
@@ -56,6 +57,59 @@ import {
   playingCardFace,
 } from './dom.js';
 import { renderPlayerHp, renderPlayerMana } from './battle-fx.js';
+import { createArcaneCardRenderer, CARD_ICON_PATHS } from './arcane-card-renderer.mjs';
+import { resolveSummonArt, drawSummonArt } from '../summon-art.js';
+import { prepareSummonIdlePose } from '../summon-idle-v2.js';
+
+let arcaneCardRenderer;
+let arcaneCardFrame = 0;
+let lastArcaneCardFrame = 0;
+function getArcaneCardRenderer() {
+  if (arcaneCardRenderer || typeof document === 'undefined') return arcaneCardRenderer;
+  const artOptions = Object.fromEntries(CREATURE_WORDS.map(id => [`${id}V2`, true]));
+  arcaneCardRenderer = createArcaneCardRenderer({
+    words: WORDS,
+    creatures: CREATURE_WORDS,
+    getArt: id => resolveSummonArt(id, artOptions),
+    drawArt: drawSummonArt,
+    accent: id => {
+      const sample = document.createElement('span');
+      sample.className = `word-${id}`;
+      document.body.append(sample);
+      const color = getComputedStyle(sample).color;
+      sample.remove();
+      return color;
+    },
+    paths: CARD_ICON_PATHS,
+    prepareIdle: args => prepareSummonIdlePose(args),
+  });
+  return arcaneCardRenderer;
+}
+
+function drawArcaneCards(motion = true) {
+  const renderer = getArcaneCardRenderer();
+  if (!renderer) return;
+  const now = performance.now();
+  document.querySelectorAll('#word-bank .arcane-art[data-word]').forEach(canvas => {
+    const box = canvas.getBoundingClientRect();
+    if (box.width && box.height && box.bottom > 0 && box.top < innerHeight) {
+      renderer.draw(canvas, { id: canvas.dataset.word, rarity: canvas.dataset.rarity, level: Number(canvas.dataset.level), time: now, motion });
+    }
+  });
+  if (motion && !document.hidden && !arcaneCardFrame) {
+    const tick = () => {
+      arcaneCardFrame = 0;
+      if (document.hidden || $('battle-view')?.hidden || !$('battle-view')?.classList.contains('hud-v3')) return;
+      if (performance.now() - lastArcaneCardFrame < 90) {
+        arcaneCardFrame = requestAnimationFrame(tick);
+        return;
+      }
+      lastArcaneCardFrame = performance.now();
+      drawArcaneCards(true);
+    };
+    arcaneCardFrame = requestAnimationFrame(tick);
+  }
+}
 
 export function renderTurnLabel(state) {
   const el = $('turn-label');
@@ -351,9 +405,14 @@ function intentIconHtml(action) {
 export function renderEnemies({ state, battlefield, targetId, busy }, forecast) {
   const xPositions = battlefield.positions();
   const positions = new Map(state.enemies.map((enemy, index) => [enemy.id, xPositions[index]]));
+  const resolveEnemyBossV2Art = kind => (
+    typeof battlefield?.resolveContextBossArt === 'function'
+      ? battlefield.resolveContextBossArt(kind)
+      : resolveContextBossArt(kind, state, battlefield?.bossVisuals, FLOOR100_BOSS_ROOM)
+  );
   const visibleEnemies = [...state.enemies].sort((a, b) => a.slot - b.slot).filter(enemy => enemy.hp > 0);
   const isRearBossEncounter = visibleEnemies.some(
-    enemy => resolveBossArt(enemy.kind, battlefield?.bossVisuals) && resolveBossLayer(enemy.kind, battlefield?.bossVisuals) === 'rear',
+    enemy => resolveEnemyBossV2Art(enemy.kind) && resolveBossLayer(enemy.kind, battlefield?.bossVisuals) === 'rear',
   );
   const rearMinionTotal = isRearBossEncounter ? visibleEnemies.filter(e => !ENEMIES[e.kind]?.isBoss).length : 0;
   const hudEl = $('major-boss-hud');
@@ -576,7 +635,7 @@ export function renderEnemies({ state, battlefield, targetId, busy }, forecast) 
       : positions.get(enemy.id);
     const cardY = isRearMinion ? 98 : (ENEMIES[enemy.kind]?.isBoss ? 42 : 56);
     const hpPct = `${Math.max(0, Math.min(100, enemy.hp / enemy.maxHp * 100))}%`;
-    const isBossV2Hud = Boolean(hudEl && resolveBossArt(enemy.kind, battlefield?.bossVisuals));
+    const isBossV2Hud = Boolean(hudEl && resolveEnemyBossV2Art(enemy.kind));
     if (isBossV2Hud) {
       hudCards.push(`<button type="button" id="target-${enemy.id}" class="major-boss-hud enemy-kind-${enemy.kind} ${targetId === enemy.id ? 'target' : ''}" data-target="${enemy.id}" aria-pressed="${targetId === enemy.id}" ${busy ? 'disabled' : ''} title="${escape(description)}" aria-label="${escape(description)}${escape(projectedLabel)} เกราะ ${armorText} ม่าน ${enemy.ward}"><span class="major-boss-hud-title"><strong>${escape(base.name)}</strong><span class="enemy-intent intent-${intentClass}">${intentLabel}${projectedLabel}</span></span><span class="major-boss-hud-hp"><span class="enemy-hp-text">${enemy.hp}/${enemy.maxHp}${predicted !== null && predicted !== enemy.hp ? ` <em>→ ${predicted}</em>` : ''}</span><span class="enemy-hp"><i class="enemy-hp-trail" style="width:${hpPct}"></i><i class="enemy-hp-fill" style="width:${hpPct}"></i></span></span><span class="enemy-info">${badges.join('')}</span></button>`);
     } else {
@@ -590,7 +649,11 @@ export function renderEnemies({ state, battlefield, targetId, busy }, forecast) 
   }
   $('enemy-list').innerHTML = cardHtml.join('');
 
-  if (state.player?.summon && state.player.summon.hp > 0) {
+  const summonPanel = $('summon-panel');
+  const summonHtml = state.player?.summon?.hp > 0
+    ? renderSummonCardHtml(state.player.summon, battlefield?.summonVisuals) : '<div class="hud-empty">ยังไม่มีผู้พิทักษ์</div>';
+  if ($('battle-view')?.classList.contains('hud-v3') && summonPanel) summonPanel.innerHTML = summonHtml;
+  else if (state.player?.summon && state.player.summon.hp > 0) {
     const list = $('enemy-list');
     list.innerHTML = renderSummonCardHtml(state.player.summon, battlefield?.summonVisuals) + list.innerHTML;
     positionSummonCard(list);
@@ -880,7 +943,7 @@ export function renderQuickCombos(ctx, parsed, knownSpell = false) {
   }).join('')}</div>`;
 }
 
-export function renderWordBank({ state, words, busy }) {
+export function renderWordBank({ state, words, busy, settings }) {
   const { hand } = state.player;
   const handLimit = getHandLimit(state.player);
   $('hand-count').textContent = `ในมือ ${hand.length}/${handLimit}`;
@@ -921,19 +984,28 @@ export function renderWordBank({ state, words, busy }) {
     const inUse = words.filter(w => w === id).length;
     const available = count - inUse;
     const extraCopies = Math.min(3, Math.max(0, count - 1));
+    const hudV3 = $('battle-view')?.classList.contains('hud-v3');
     const stackSheets = Array.from({ length: extraCopies }, (_, i) => {
       const layerNum = extraCopies - i;
       const isAvailSheet = layerNum < available;
-      return `<span class="card-stack-sheet stack-layer-${layerNum} ${isAvailSheet ? 'sheet-avail' : 'sheet-used'}" aria-hidden="true"><span class="sheet-inner"><span class="sheet-corner"><span class="corner-icon">${icon(id)}</span><span class="corner-name">${word.label}</span></span></span></span>`;
+      return hudV3
+        ? `<canvas class="arcane-art card-stack-sheet stack-layer-${layerNum} ${isAvailSheet ? 'sheet-avail' : 'sheet-used'}" data-word="${id}" data-rarity="${word.rarity ?? 'common'}" data-level="${getCardUpgradeLevel(state, id)}" aria-hidden="true"></canvas>`
+        : `<span class="card-stack-sheet stack-layer-${layerNum} ${isAvailSheet ? 'sheet-avail' : 'sheet-used'}" aria-hidden="true"><span class="sheet-inner"><span class="sheet-corner"><span class="corner-icon">${icon(id)}</span><span class="corner-name">${word.label}</span></span></span></span>`;
     }).join('');
     const copyPips = Array.from({ length: count }, (_, i) => `<i class="copy-pip ${i < available ? 'avail' : 'used'}"></i>`).join('');
     const countBadge = `<span class="card-copies ${count > 1 ? 'is-stacked' : ''}" title="พร้อมใช้ ${available} จาก ${count} ใบ"><span class="copy-pips" aria-hidden="true">${copyPips}</span><span class="copy-count ${available <= 0 ? 'zero' : ''}">${available > 0 ? `×${available}` : `ในแท่น ${inUse}`}</span></span>`;
     const offset = totalTypes > 1 ? idx - mid : 0;
     const fanAngle = (offset * 1.6).toFixed(2);
     const fanLift = (Math.abs(offset) * 2.5).toFixed(1);
+    const art = `<canvas class="arcane-art" data-word="${id}" data-rarity="${word.rarity ?? 'common'}" data-level="${getCardUpgradeLevel(state, id)}" aria-hidden="true"></canvas>`;
+    const face = playingCardFace(state, id, { headerRight: countBadge, battle: true, showInspector: false });
+    if (hudV3) {
+      return `<div class="word-item lab-card-shell playing-card word-${id} ${rarityClass(word)} ${meta.roleClass} ${count > 1 ? 'has-stack' : ''} ${available <= 0 ? 'depleted' : ''} ${inUse > 0 && available > 0 ? 'partially-used' : ''}" data-copies="${Math.min(4, Math.max(1, available))}" data-total-copies="${count}" style="--fan-angle:${fanAngle}deg;--fan-lift:${fanLift}px">${stackSheets}<button id="word-${id}" class="word-add hud-card" data-word="${id}" data-drag-word="${id}" aria-label="เพิ่ม ${word.label} ลงช่องคาถา · พร้อมใช้ ${available} จาก ${count}" ${busy || overflow > 0 || available <= 0 ? 'disabled' : ''}>${art}${face}</button><button type="button" class="lab-card-info" data-card-detail="${id}" aria-label="ดูรายละเอียดการ์ด ${word.label}" title="ดูรายละเอียด"><span>i</span></button><button class="drag-handle" data-drag-word="${id}" tabindex="-1" aria-label="ลากคำ ${word.label}" ${busy || overflow > 0 || available <= 0 ? 'disabled' : ''}></button></div>`;
+    }
     return `<div class="word-item playing-card word-${id} ${rarityClass(word)} ${meta.roleClass} ${count > 1 ? 'has-stack' : ''} ${available <= 0 ? 'depleted' : ''} ${inUse > 0 && available > 0 ? 'partially-used' : ''}" data-copies="${Math.min(4, Math.max(1, available))}" data-total-copies="${count}" style="--fan-angle:${fanAngle}deg;--fan-lift:${fanLift}px">${stackSheets}<button id="word-${id}" class="word-add" data-word="${id}" data-drag-word="${id}" ${busy || overflow > 0 ? 'disabled' : ''}>${playingCardFace(state, id, { headerRight: countBadge, battle: true })}</button><button class="drag-handle" data-drag-word="${id}" tabindex="-1" aria-label="ลากคำ ${word.label}" ${busy || overflow > 0 ? 'disabled' : ''}></button></div>`;
   }).join('');
   bank.scrollLeft = scrollLeft;
+  if ($('battle-view')?.classList.contains('hud-v3')) drawArcaneCards(!settings?.reducedMotion);
   if (!busy && overflow > 0) {
     try {
       $('battle-tools').close();

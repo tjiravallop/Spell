@@ -13,6 +13,7 @@
   <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./battle-ui.css">
+  <link rel="stylesheet" href="./battlefield-hud-v3.css">
   <script type="module" src="./src/app.js"></script>
 </head>
 <body>
@@ -116,6 +117,10 @@
       </section>
 
       </div>
+      <dialog id="inspect-sheet" class="inspect-sheet hud-v3" aria-label="รายละเอียดสนามต่อสู้">
+        <div class="inspect-sheet-head"><strong>สถานะสนามต่อสู้</strong><button id="inspect-close" type="button" class="secondary-button">ปิด</button></div>
+        <div id="inspect-content" class="inspect-content"></div>
+      </dialog>
     </section>
 
     <section id="reward-view" class="intermission" hidden><span id="reward-emblem" class="result-seal"></span><h1>เปิดการ์ดคำ</h1><p id="reward-subtitle"></p><div id="reward-story" class="story-card" hidden></div><div id="reward-player" class="reward-player"></div><div id="reward-list" class="reward-list"></div><p class="muted">การ์ดที่เลือกจะเก็บในคลังข้ามรอบ</p></section>

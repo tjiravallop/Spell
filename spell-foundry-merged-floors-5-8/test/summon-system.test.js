@@ -9,6 +9,7 @@ import { ATTACK_PROFILES, mapSummonAttackMark, prepareSummonAttackPose, summonAt
 import { elementVariantFor, resolveSummonArt } from '../src/summon-art.js';
 import { SUMMON_BODY_PALETTES } from '../src/summon-palettes.js';
 import { IDLE_PROFILES, mapSummonIdleMark, prepareSummonIdlePose } from '../src/summon-idle-v2.js';
+import { REACTION_PROFILES, drawSummonReactionFx, mapSummonReactionMark, prepareSummonReactionPose, summonReactionKind } from '../src/summon-reaction-v2.js';
 
 function representativeSummonMark(art, palette) {
   const mark = elementVariantFor(art, palette).mark;
@@ -215,7 +216,7 @@ test('E6.2 routes idle poses, maps marks, pins grounded art, and respects active
   for (const event of [
     { type: 'summon_invoke' }, { type: 'summon_strike' }, { type: 'summon_counter' },
     { type: 'summon_relay' }, { type: 'summon_hit' }, { type: 'summon_rebirth' },
-    { type: 'summon_break' }, { type: 'attack', target: 'summon' },
+    { type: 'summon_break' }, { type: 'ward_absorb', target: 'summon' }, { type: 'dodge', target: 'summon' },
   ]) assert.equal(route(event, 0.8), null, `${event.type} has priority over idle`);
   renderer.settings.reducedMotion = true;
   assert.equal(route().art, art, 'reduced motion returns the original art');
@@ -237,6 +238,59 @@ test('E6.2 airborne idle keeps hover geometry and attack transitions return to i
   const idleAgain = prepareSummonIdlePose({ ...options, timeMs: 840 });
   assert.ok(idleAgain, 'idle routing resumes after an attack event ends');
   assert.equal(prepareSummonIdlePose({ ...options, timeMs: 420, reducedMotion: true }).art, art);
+});
+
+test('E6.3 routes authoritative summon outcomes without stacking idle or legacy contact effects', () => {
+  assert.equal(Object.keys(REACTION_PROFILES).length, CREATURE_WORDS.length);
+  const art = resolveSummonArt('dog', { dogV2: true, sizeV2: true });
+  const palette = SUMMON_BODY_PALETTES.fire;
+  const mark = representativeSummonMark(art, palette);
+  const summon = { creatureId: 'dog', element: 'fire', isGrand: false };
+  const renderer = {
+    summonVisuals: { summonReactionV2: true, summonIdleV2: true, dogV2: true, sizeV2: true },
+    settings: { reducedMotion: false }, ctx: { canvas: { width: 320, height: 180 } },
+  };
+  const outcomes = [
+    [{ type: 'summon_hit', target: 'summon', damage: 8 }, 'hurt'],
+    [{ type: 'summon_hit', target: 'summon', damage: 0 }, 'zero'],
+    [{ type: 'ward_absorb', target: 'summon' }, 'ward'],
+    [{ type: 'dodge', target: 'summon' }, 'dodge'],
+  ];
+  for (const [event, kind] of outcomes) {
+    assert.equal(summonReactionKind(event), kind);
+    const pose = Battlefield.prototype.prepareSummonReactionPoseForEvent.call(renderer, summon, 88, 147, event, 0.45);
+    assert.equal(pose.frame, 7);
+    assert.equal(pose.art.reactionPoseSource, art);
+    assert.ok(mapSummonReactionMark(pose.art, mark).length > 0);
+    assert.equal(Battlefield.prototype.prepareSummonIdlePoseForEvent.call(renderer, summon, art,
+      { left: 73, top: 99, scale: 1.5, groundX: 88, groundY: 147 }, event, 0.45, 700), null);
+  }
+  assert.equal(summonReactionKind({ type: 'attack', target: 'summon', amount: 0 }), null,
+    'intercepted attack outcome does not imply summon damage');
+  assert.ok(Battlefield.prototype.prepareSummonIdlePoseForEvent.call(renderer, summon, art,
+    { left: 73, top: 99, scale: 1.5, groundX: 88, groundY: 147 },
+    { type: 'attack', target: 'summon', amount: 0 }, 0.8, 700),
+  'the preceding attack event does not trigger or mask an authoritative reaction');
+  renderer.summonVisuals.summonReactionV2 = false;
+  assert.equal(Battlefield.prototype.prepareSummonIdlePoseForEvent.call(renderer, summon, art,
+    { left: 73, top: 99, scale: 1.5, groundX: 88, groundY: 147 },
+    { type: 'attack', target: 'summon', amount: 0 }, 0.8, 700), null,
+  'legacy mode keeps its existing contact shake separate from idle deformation');
+  renderer.summonVisuals.summonReactionV2 = true;
+  assert.equal(summonReactionKind({ type: 'summon_hit', target: 'enemy', damage: 8 }), null);
+  assert.equal(summonReactionKind({ type: 'summon_counter', target: 'enemy', amount: 8 }), null,
+    'counter continues through the E6.1 attack path');
+  assert.ok(Battlefield.prototype.prepareSummonIdlePoseForEvent.call(renderer, summon, art,
+    { left: 73, top: 99, scale: 1.5, groundX: 88, groundY: 147 }, null, 0, 900),
+  'idle resumes after the reaction event');
+
+  renderer.settings.reducedMotion = true;
+  const reduced = Battlefield.prototype.prepareSummonReactionPoseForEvent.call(renderer, summon, 88, 147, outcomes[0][0], 0.45);
+  assert.equal(reduced.art, art, 'reduced motion uses unposed creature art');
+  let draws = 0;
+  drawSummonReactionFx({ save() { draws++; }, restore() { draws++; }, fillRect() { draws++; } }, reduced,
+    { kind: 'hurt', progress: 0.45, reducedMotion: true });
+  assert.equal(draws, 0, 'reduced motion omits reaction contact accents');
 });
 
 test('Summon System: Reward Pool gating (Creatures drop only if player owns summon)', () => {

@@ -132,8 +132,11 @@ const battlefield = new Battlefield($('battle-canvas'), settings, {
   auraV2: true,
   invokeV2: true,
   summonAttackV2: true,
-  summonIdleV2: false,
+  summonIdleV2: true,
+  summonReactionV2: true,
   summonCombatV2: true,
+  playerArtV2: true, // E8 approved; independent rollback switch.
+  enemyArtV2: !(localDev && devOptions.get('enemyArt') === 'v1'), // E9 approved; independent rollback switch.
   bodyPaletteV2: true, // E1 approved; independent from Aura V2 preview.
   sizeV2: true,
   ...Object.fromEntries(CREATURE_WORDS.map(id => [`${id}V2`, true])),
@@ -142,7 +145,34 @@ const battlefield = new Battlefield($('battle-canvas'), settings, {
   sizeTier: localDev ? (devOptions.get('bossSize') || null) : null,
   rearFormation: localDev ? (devOptions.get('rearFormation') || null) : null,
 });
-const homeArt = new Battlefield($('home-canvas'), settings);
+const HUD_V3_ENABLED = true;
+const hudPlaceholders = new Map();
+function configureBattleHudV3(enabled) {
+  const view = $('battle-view');
+  view?.classList.toggle('hud-v3', enabled);
+  if (enabled && view && !$('hud-arena')) {
+    const arena = document.createElement('div'); arena.id = 'hud-arena'; arena.className = 'hud-arena';
+    const left = document.createElement('aside'); left.className = 'hud-rail hud-left'; left.innerHTML = '<h2 class="hud-rail-heading">ผู้พิทักษ์ <small>แนวหน้า</small></h2><div id="summon-panel" aria-label="สถานะผู้พิทักษ์"></div>';
+    const stage = document.createElement('main'); stage.className = 'hud-stage'; stage.innerHTML = '<div class="hud-stage-caption"><span>สนามต่อสู้</span><button id="mobile-inspect-open" type="button" class="hud-inspect-open">สถานะเป้าหมาย</button></div>';
+    const right = document.createElement('aside'); right.className = 'hud-rail hud-right'; right.innerHTML = '<h2 class="hud-rail-heading">สถานะและเป้าหมาย</h2>';
+    const [wrap, bossHud, enemyList] = [$('battlefield-wrap'), $('major-boss-hud'), $('enemy-list')];
+    const elements = [wrap, bossHud, enemyList].filter(Boolean);
+    for (const el of elements) {
+      const marker = document.createComment(`hud-v3:${el.id}`);
+      el.parentNode.insertBefore(marker, el); hudPlaceholders.set(el, marker);
+    }
+    wrap?.after(arena);
+    if (wrap) stage.append(wrap);
+    right.append(...[bossHud, enemyList].filter(Boolean));
+    arena.append(left, stage, right);
+  } else if (!enabled && $('hud-arena')) {
+    for (const [el, marker] of hudPlaceholders) marker.parentNode?.insertBefore(el, marker);
+    hudPlaceholders.forEach(marker => marker.remove()); hudPlaceholders.clear();
+    $('hud-arena').remove(); $('summon-panel')?.remove();
+  }
+}
+configureBattleHudV3(HUD_V3_ENABLED);
+const homeArt = new Battlefield($('home-canvas'), settings, { enemyArtV2: !(localDev && devOptions.get('enemyArt') === 'v1') });
 const sanctuaryMenu = $('sanctuary-menu');
 const homeState = createRun('home-art', true);
 homeState.rooms[0] = ['warden', 'swarm'];
@@ -678,7 +708,7 @@ function renderBattle() {
   renderCastFxBanner(busy, castFxState);
   renderSlots({ state, words, selectedSlot, busy, castFxState }, parsed, knownSpell);
   renderQuickCombos({ state, words, busy, accountDiscovered, getPlayableCombos, lastJustUnlockedKey }, parsed, knownSpell);
-  renderWordBank({ state, words, busy });
+  renderWordBank({ state, words, busy, settings });
   const handLimit = getHandLimit(p);
   if (p.hand.length <= handLimit) {
     selectedDiscardIndices.clear();
@@ -1335,6 +1365,20 @@ $('climb-button').addEventListener('click', () => {
   } catch (error) { toast(error.message); }
 });
 $('cast-button').addEventListener('click', () => commit());
+$('mobile-inspect-open')?.addEventListener('click', () => {
+  const content = $('inspect-content');
+  content.replaceChildren();
+  for (const id of ['summon-panel', 'major-boss-hud', 'enemy-list']) {
+    const source = $(id);
+    if (!source || source.hidden || !source.children.length) continue;
+    const copy = source.cloneNode(true);
+    copy.removeAttribute('id');
+    copy.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+    content.append(copy);
+  }
+  $('inspect-sheet').showModal();
+});
+$('inspect-close')?.addEventListener('click', () => $('inspect-sheet').close());
 $('close-discard-btn')?.addEventListener('click', () => {
   try { $('discard-panel').close(); } catch {}
   $('discard-panel').removeAttribute('open');
