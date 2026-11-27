@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { BOSS_ART_V2, evaluateBossAnimation, resolveBossArt, resolveContextBossArt } from '../src/boss-art-v2.js';
 import { BOSS_SIZE_V2 } from '../src/boss-sizes.js';
 import { ENEMY_ART_V2 } from '../src/enemy-art-v2.js';
@@ -396,5 +397,46 @@ describe('Floor 100 Ultimate Final Boss V2 integration', () => {
     assert.equal(loadedE9.ok, true, loadedE9.error);
     assert.equal(loadedE9.state.enemies[1].kind, 'council_zenith_templar');
     assert.equal(loadedE9.state.enemies[1].hp, 1111);
+  });
+
+  it('activates Major Boss V2 by default in app.js with ?bossArt=v1 emergency rollback', () => {
+    const appSrc = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+    assert.match(appSrc, /v2:\s*devOptions\.get\('bossArt'\)\s*!==\s*'v1'/);
+    assert.doesNotMatch(appSrc, /v2:\s*localDev\s*&&\s*devOptions\.get\('bossArt'\)\s*===\s*'v2'/);
+    assert.match(appSrc, /playerArtV2:\s*true/);
+    assert.match(appSrc, /enemyArtV2:\s*!\(localDev\s*&&\s*devOptions\.get\('enemyArt'\)\s*===\s*'v1'\)/);
+  });
+
+  it('draws representative bosses beyond Floor 100 cleanly across animation, overrides, and reduced motion', () => {
+    setupGlobals();
+    const cases = [
+      { kind: 'ember_overlord', ctx: { pose: 'attack', attacking: true, progress: 0.5, frame: 2 } },
+      { kind: 'loom_sovereign', ctx: { pose: 'idle', supporting: true, frame: 3 } },
+      { kind: 'abyssal_cthulhu', ctx: { pose: 'idle', armor: 0, frame: 4 } },
+      { kind: 'nether_dread_lord', ctx: { netherPhase: 2, unsealed: true, purged: true, pose: 'attack', attacking: true, progress: 0.4, frame: 1 } },
+    ];
+    for (const reducedMotion of [false, true]) {
+      for (const entry of cases) {
+        const art = BOSS_ART_V2[entry.kind];
+        assert.ok(art);
+        const anim = evaluateBossAnimation(art, { ...entry.ctx, reducedMotion, now: 640 });
+        assert.ok(anim && typeof anim === 'object');
+        const bf = new Battlefield(createMockCanvas(), { reducedMotion, combatSpeed: 1 }, { enemyArtV2: true, playerArtV2: true }, { v2: true });
+        const s = createRun(`boss-v2-${entry.kind}-${reducedMotion}`, false);
+        const targetRoom = entry.kind === 'ember_overlord' ? 24
+          : entry.kind === 'loom_sovereign' ? FLOOR50_BOSS_ROOM
+            : entry.kind === 'abyssal_cthulhu' ? 199
+              : 224;
+        s.room = targetRoom;
+        enterRoom(s);
+        if (entry.kind === 'abyssal_cthulhu') {
+          s.cthulhuPhase = 2;
+          s.enemies = [createEnemy('abyssal_cthulhu', 0, 199)];
+        }
+        bf.set(s, null);
+        bf.stop();
+        bf.draw(performance.now());
+      }
+    }
   });
 });

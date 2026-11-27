@@ -141,7 +141,7 @@ const battlefield = new Battlefield($('battle-canvas'), settings, {
   sizeV2: true,
   ...Object.fromEntries(CREATURE_WORDS.map(id => [`${id}V2`, true])),
 }, {
-  v2: localDev && devOptions.get('bossArt') === 'v2',
+  v2: devOptions.get('bossArt') !== 'v1', // Major Boss V2 enabled by default; ?bossArt=v1 emergency rollback works on any origin.
   sizeTier: localDev ? (devOptions.get('bossSize') || null) : null,
   rearFormation: localDev ? (devOptions.get('rearFormation') || null) : null,
 });
