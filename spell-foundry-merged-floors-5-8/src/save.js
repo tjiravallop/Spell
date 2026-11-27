@@ -1,4 +1,5 @@
 import { ATTACK_FORMS, BATTLE_LIMITED_WORDS, ELEMENTS, WORDS, START_WORDS, LARGE_SHIELD_HP, getSpellCatalog } from './words.js';
+import { ENEMY_ID_RENAMES } from './enemy-art-v2.js';
 import {
   ENEMIES,
   getHandLimit,
@@ -43,6 +44,7 @@ import {
   RIFT_TIERS,
   GEAR_RIFT_BOSS_BY_TIER,
   getGearRiftStage3Kinds,
+  resolveRoomEncounterKinds,
   GEAR_CATALOG,
   GEAR_SLOTS,
   MAX_GEAR_REFINE,
@@ -88,11 +90,13 @@ const previousEnemyHp = {
   dread_reaper: [118],
   void_devourer: [130],
   nether_dread_lord: [760],
+  cosmic_silk_oracle: [128],
   chaos_weaver: [128],
   astral_chimera: [140],
   primordial_avatar: [580],
-  zenith_templar: [145],
-  chronos_keeper: [135],
+  astral_vanguard: [145],
+  council_zenith_templar: [145],
+  aeon_oracle: [135],
   eternity_overlord: [880, 6500, 10000],
   eternity_reborn: [5500, 3500],
 };
@@ -254,7 +258,7 @@ export function validateRun(state) {
       ? ['abyssal_cthulhu']
       : (state.eternityPhase === 3 || completedEternity)
         ? ['eternity_reborn']
-        : state.rooms[state.room];
+        : resolveRoomEncounterKinds(state);
   if (!Array.isArray(state.enemies) || state.enemies.length !== expectedKinds.length) invalid();
   const slots = new Set();
   state.enemies.forEach((enemy, index) => {
@@ -381,6 +385,55 @@ export function saveRun(state, storage) {
     return { ok: true };
   } catch (error) { return { ok: false, error: `บันทึกไม่สำเร็จ: ${error.message} · เล่นต่อได้ แต่ความคืบหน้าอาจไม่ถูกเก็บ` }; }
 }
+function mapLegacyKindForContext(kind, canonicalFloor100) {
+  if (typeof kind !== 'string') return kind;
+  if (kind === 'chronos_keeper') return 'aeon_oracle';
+  if (kind === 'zenith_templar' || (canonicalFloor100 && kind === 'astral_vanguard')) {
+    return canonicalFloor100 ? 'council_zenith_templar' : 'astral_vanguard';
+  }
+  if (kind === 'chaos_weaver') {
+    return canonicalFloor100 ? 'chaos_weaver' : 'cosmic_silk_oracle';
+  }
+  return Object.hasOwn(ENEMY_ID_RENAMES, kind) ? ENEMY_ID_RENAMES[kind] : kind;
+}
+
+function normalizeLegacyEnemyIds(decoded) {
+  if (!object(decoded)) return;
+  if (Array.isArray(decoded.rooms)) {
+    decoded.rooms = decoded.rooms.map((room, roomIdx) => (
+      Array.isArray(room) ? room.map(k => mapLegacyKindForContext(k, roomIdx === FLOOR100_BOSS_ROOM)) : room
+    ));
+  }
+  const activeCanonicalF100 = decoded.room === FLOOR100_BOSS_ROOM && !decoded.rift;
+  if (Array.isArray(decoded.enemies)) {
+    for (const enemy of decoded.enemies) {
+      if (!object(enemy) || typeof enemy.kind !== 'string') continue;
+      const nextKind = mapLegacyKindForContext(enemy.kind, activeCanonicalF100);
+      if (nextKind !== enemy.kind) {
+        enemy.kind = nextKind;
+        if (ENEMIES[nextKind]?.name) enemy.name = ENEMIES[nextKind].name;
+      }
+    }
+  }
+  if (object(decoded.rift)) {
+    if (Array.isArray(decoded.rift.rooms)) {
+      decoded.rift.rooms = decoded.rift.rooms.map(room => (
+        Array.isArray(room) ? room.map(k => mapLegacyKindForContext(k, false)) : room
+      ));
+    }
+    if (Array.isArray(decoded.rift.enemies)) {
+      for (const enemy of decoded.rift.enemies) {
+        if (!object(enemy) || typeof enemy.kind !== 'string') continue;
+        const nextKind = mapLegacyKindForContext(enemy.kind, false);
+        if (nextKind !== enemy.kind) {
+          enemy.kind = nextKind;
+          if (ENEMIES[nextKind]?.name) enemy.name = ENEMIES[nextKind].name;
+        }
+      }
+    }
+  }
+}
+
 export function loadRun(storage) {
   let hadData = false;
   let lastError;
@@ -392,6 +445,7 @@ export function loadRun(storage) {
       hadData = true;
       try {
         const decoded = JSON.parse(raw);
+        normalizeLegacyEnemyIds(decoded);
         if (object(decoded) && object(decoded.player)) {
           const summon = decoded.player.summon ?? decoded.summon;
           if (summon && (decoded.phase !== 'battle' || decoded.turn === 1 || summon.turnCreated > decoded.turn)) {

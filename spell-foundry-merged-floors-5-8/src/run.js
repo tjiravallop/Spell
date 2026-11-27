@@ -81,24 +81,24 @@ export function getEternityShiftAffinity(turn) {
 
 export const ENEMIES = Object.freeze({
   striker: { name: 'อิมพ์หมึก', hp: 16, armor: 0, ward: 0, attack: 3, color: '#ba7862', exp: 10, gold: 8, isBoss: false },
-  warden: { name: 'ผู้ถือม่าน', hp: 16, armor: 0, ward: 1, attack: 3, color: '#9d8ad1', exp: 12, gold: 10, isBoss: false },
-  armored: { name: 'อัศวินหม้อเหล็ก', hp: 17, armor: 3, ward: 0, attack: 3, color: '#9aaca5', exp: 14, gold: 11, isBoss: false },
+  warden: { name: 'ผู้ผนึกอาคม', hp: 16, armor: 0, ward: 1, attack: 3, color: '#9d8ad1', exp: 12, gold: 10, isBoss: false },
+  armored: { name: 'อัศวินเกราะเหล็ก', hp: 17, armor: 3, ward: 0, attack: 3, color: '#9aaca5', exp: 14, gold: 11, isBoss: false },
   swarm: { name: 'หยดหมึก', hp: 5, armor: 0, ward: 0, attack: 2, color: '#a8c784', exp: 6, gold: 5, isBoss: false },
-  charger: { name: 'โกเลมไส้ตะเกียง', hp: 17, armor: 0, ward: 0, attack: 7, color: '#d1a45e', exp: 15, gold: 12, isBoss: false },
-  support: { name: 'บรรณารักษ์เชื้อรา', hp: 11, armor: 0, ward: 0, attack: 3, color: '#83b5ad', exp: 11, gold: 9, isBoss: false },
+  charger: { name: 'อสูรเตาหลอม', hp: 17, armor: 0, ward: 0, attack: 7, color: '#d1a45e', exp: 15, gold: 12, isBoss: false },
+  support: { name: 'ภูตสปอร์เยียวยา', hp: 11, armor: 0, ward: 0, attack: 3, color: '#83b5ad', exp: 11, gold: 9, isBoss: false },
   elite: { name: 'ผู้เฝ้าชั้นหนึ่ง', hp: 29, armor: 0, ward: 1, attack: 4, color: '#b6a0cf', exp: 30, gold: 25, isBoss: true },
   sentinel: { name: 'ผู้พิทักษ์หอเหล็ก', hp: 34, armor: 2, ward: 0, attack: 7, color: '#c39570', exp: 40, gold: 35, isBoss: true },
   boss: { name: 'ตำราต้องห้าม', hp: 43, armor: 0, ward: 0, attack: 4, color: '#dab87a', exp: 55, gold: 45, isBoss: true },
   ember_imp: { name: 'อิมพ์เพลิง', hp: 22, armor: 0, ward: 0, attack: 5, color: '#e29d83', exp: 18, gold: 15, isBoss: false, affinity: 'fire' },
-  iron_warden: { name: 'ผู้พิทักษ์ม่านเหล็ก', hp: 24, armor: 2, ward: 1, attack: 4, color: '#907ba6', exp: 22, gold: 18, isBoss: false, affinity: 'earth' },
-  rune_golem: { name: 'โกเลมรูน', hp: 30, armor: 2, ward: 0, attack: 9, color: '#e4b659', exp: 26, gold: 21, isBoss: false, affinity: 'earth' },
+  iron_warden: { name: 'ผู้พิทักษ์ม่านศิลา', hp: 24, armor: 2, ward: 1, attack: 4, color: '#907ba6', exp: 22, gold: 18, isBoss: false, affinity: 'earth' },
+  rune_golem: { name: 'โกเลมผลึกรูน', hp: 30, armor: 2, ward: 0, attack: 9, color: '#e4b659', exp: 26, gold: 21, isBoss: false, affinity: 'earth' },
   mirror_mage: { name: 'จอมเวทกระจกเงา', hp: 58, armor: 1, ward: 1, attack: 6, color: '#bca5d2', exp: 68, gold: 58, isBoss: true, affinity: 'ice' },
   frost_lich: { name: 'ลิชเหมันต์', hp: 64, armor: 2, ward: 1, attack: 5, color: '#8bb7a0', exp: 78, gold: 66, isBoss: true, affinity: 'ice' },
   storm_titan: { name: 'ไททันอัสนี', hp: 76, armor: 3, ward: 0, attack: 11, color: '#f5db87', exp: 92, gold: 78, isBoss: true, affinity: 'lightning' },
   arch_codex: { name: 'อาร์คโคเด็กซ์ต้องห้าม', hp: 92, armor: 2, ward: 1, attack: 6, color: '#f5db87', exp: 115, gold: 95, isBoss: true },
   ember_overlord: { name: 'จ้าวอัคคีบรรพกาล', hp: 135, armor: 3, ward: 1, attack: 8, color: '#ffad42', exp: 180, gold: 150, isBoss: true, affinity: 'fire' },
   void_imp: { name: 'กบอัคนี', hp: 34, armor: 1, ward: 0, attack: 7, color: '#e27b46', exp: 32, gold: 26, isBoss: false, affinity: 'fire' },
-  aether_warden: { name: 'ผู้คุมม่านอาคม', hp: 38, armor: 2, ward: 1, attack: 6, color: '#907ba6', exp: 36, gold: 30, isBoss: false, affinity: 'wind', swapTurn: 2 },
+  aether_warden: { name: 'ผู้คุมม่านวายุ', hp: 38, armor: 2, ward: 1, attack: 6, color: '#907ba6', exp: 36, gold: 30, isBoss: false, affinity: 'wind', swapTurn: 2 },
   obsidian_golem: { name: 'หมูป่าหินผา', hp: 46, armor: 3, ward: 0, attack: 12, color: '#718063', exp: 42, gold: 35, isBoss: false, affinity: 'earth' },
   chrono_sage: { name: 'นักปราชญ์กาลเวลา', hp: 30, armor: 1, ward: 1, attack: 6, color: '#83b5ad', exp: 38, gold: 32, isBoss: false },
   prism_watcher: { name: 'ผู้เฝ้าปริซึมชั้นสูง', hp: 105, armor: 2, ward: 1, attack: 8, color: '#b6a0cf', exp: 125, gold: 105, isBoss: true, affinity: 'water' },
@@ -149,6 +149,21 @@ export function getGearRiftStage3Kinds(tier) {
   if (tier === 90) return ['nether_forge_pillar', 'nether_forge_pillar', 'nether_forge_overlord', 'nether_forge_pillar'];
   const boss = GEAR_RIFT_BOSS_BY_TIER[tier];
   return boss ? [boss] : null;
+}
+
+export function resolveRoomEncounterKinds(state) {
+  if (state?.rift?.type === 'gear' && state.rift.stage === 2) {
+    return getGearRiftStage3Kinds(state.rift.tier);
+  }
+  const base = state?.rooms?.[state.room];
+  if (state?.rift && state.room === FLOOR100_BOSS_ROOM && Array.isArray(base)) {
+    return base.map(kind => (
+      kind === 'council_zenith_templar' ? 'astral_vanguard'
+        : kind === 'chaos_weaver' ? 'cosmic_silk_oracle'
+          : kind
+    ));
+  }
+  return base;
 }
 
 export function clearPhase3BattleFlags(state) {
@@ -2707,10 +2722,14 @@ export function checkEternityPhase2(state, summary = null, events = null, { abso
 
   state.eternityPhase = 2;
   let absorbed = 0;
+  const absorbedIds = [];
   for (const ally of state.enemies) {
     if (ally.id !== boss.id && ally.hp > 0) {
       ally.hp = 0;
-      if (absorbCouncil) absorbed++;
+      if (absorbCouncil) {
+        absorbed++;
+        absorbedIds.push(ally.id);
+      }
     }
   }
   const preHealHp = boss.hp;
@@ -2736,6 +2755,7 @@ export function checkEternityPhase2(state, summary = null, events = null, { abso
       phase: 2,
       mode: 'prism',
       absorbed,
+      absorbedIds,
       healed,
       eternity: eternityHealth(state, 2, preHealHp),
       label,
@@ -2758,6 +2778,11 @@ export function checkEternityPhase2(state, summary = null, events = null, { abso
 }
 
 export function triggerEternityPhase3(state, summary = null, events = null) {
+  const prevPhase = state.eternityPhase ?? 1;
+  const prevBoss = state.enemies?.find(e => e.kind === 'eternity_overlord') ?? null;
+  const outgoingBoss = prevBoss
+    ? { id: prevBoss.id, kind: prevBoss.kind, slot: prevBoss.slot, affinity: prevBoss.affinity, eternityPhase: prevPhase }
+    : null;
   state.eternityPhase = 3;
   delete state.magmaPuddles;
   delete state.blackhole;
@@ -2782,6 +2807,7 @@ export function triggerEternityPhase3(state, summary = null, events = null) {
       mode: 'reborn',
       eternity: eternityHealth(state),
       mercyHeal,
+      ...(outgoingBoss ? { outgoingBoss } : {}),
       label,
     });
     if (mercyHeal > 0) {
@@ -2852,10 +2878,7 @@ export function enterRoom(state) {
   }
   state.player.shield = startLayers.length ? makeShield(startLayers) : null;
   state.player.elementBuffs = {};
-  const gearRiftStage3Kinds = state.rift?.type === 'gear' && state.rift.stage === 2
-    ? getGearRiftStage3Kinds(state.rift.tier)
-    : null;
-  const enemyKinds = gearRiftStage3Kinds ?? state.rooms[state.room];
+  const enemyKinds = resolveRoomEncounterKinds(state);
   state.enemies = enemyKinds.map((kind, index) => createEnemy(kind, index, state.room));
   const roomFloor = getFloorInfo(state.room, state.rooms.length).floor;
   if (SPACED_FLOORS.has(roomFloor) || ENDGAME_SPACED_FLOORS.has(roomFloor)) {
@@ -5094,7 +5117,7 @@ export function intent(enemy, turn, enemies = [], room = 0, instability = false)
     const next = Math.max(0, 88 + enemyClimaxBonus(turn + 1, room) - enemy.chill - (enemy.obscured ? 4 : 0));
     return { type: 'charge', amount: 0, shortLabel: `ชาร์จ ${next}`, label: `รวบรวมทัณฑ์นรกานต์ · เทิร์นหน้ายิงลำแสง ${next}!` };
   }
-  if (enemy.kind === 'chronos_keeper' && room === FLOOR100_BOSS_ROOM && turn % 2 === 1) {
+  if (enemy.kind === 'aeon_oracle' && room === FLOOR100_BOSS_ROOM && turn % 2 === 1) {
     const allies = enemies.filter(other => other.hp > 0 && other.id !== enemy.id);
     const target = allies.reduce((best, other) => !best || other.hp * best.maxHp < best.hp * other.maxHp
       || (other.hp * best.maxHp === best.hp * other.maxHp && other.slot < best.slot) ? other : best, null);

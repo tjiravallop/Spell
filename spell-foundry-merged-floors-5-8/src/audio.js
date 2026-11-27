@@ -14,7 +14,7 @@ export const MINI_BOSS_KINDS = new Set([
   'spark_wraith', 'ancient_chitin_behemoth', 'venom_spore_beast', 'crag_titan_sentinel',
   'cthulhu_ward_tentacle', 'cthulhu_heal_tentacle', 'cthulhu_ink_tentacle', 'cthulhu_crush_tentacle',
   'nether_leech_pillar', 'nether_curse_pillar', 'nether_doom_pillar',
-  'dread_reaper', 'void_devourer', 'zenith_templar', 'chronos_keeper', 'chaos_weaver',
+  'dread_reaper', 'void_devourer', 'cosmic_silk_oracle', 'astral_vanguard', 'council_zenith_templar', 'aeon_oracle', 'chaos_weaver',
 ]);
 
 export const BEAST_TRASH_KINDS = new Set([

@@ -14,6 +14,11 @@ import { NETHER_DREAD_LORD_V2_DEF } from './boss-art/nether-dread-lord-v2.js';
 import { NETHER_LEECH_PILLAR_V2_DEF } from './boss-art/nether-leech-pillar-v2.js';
 import { NETHER_CURSE_PILLAR_V2_DEF } from './boss-art/nether-curse-pillar-v2.js';
 import { NETHER_DOOM_PILLAR_V2_DEF } from './boss-art/nether-doom-pillar-v2.js';
+import { ETERNITY_OVERLORD_V2_DEF } from './boss-art/eternity-overlord-v2.js';
+import { ETERNITY_REBORN_V2_DEF } from './boss-art/eternity-reborn-v2.js';
+import { CHRONOS_KEEPER_V2_DEF } from './boss-art/chronos-keeper-v2.js';
+import { ZENITH_TEMPLAR_V2_DEF } from './boss-art/zenith-templar-v2.js';
+import { CHAOS_WEAVER_V2_DEF } from './boss-art/chaos-weaver-v2.js';
 import { getOpaqueBounds } from './boss-sizes.js';
 
 function pixelSpans(row) {
@@ -188,14 +193,62 @@ export const BOSS_ART_V2 = Object.freeze({
   nether_leech_pillar: createBossArt(NETHER_LEECH_PILLAR_V2_DEF, 'nether_leech_pillar'),
   nether_curse_pillar: createBossArt(NETHER_CURSE_PILLAR_V2_DEF, 'nether_curse_pillar'),
   nether_doom_pillar: createBossArt(NETHER_DOOM_PILLAR_V2_DEF, 'nether_doom_pillar'),
+  eternity_overlord: createBossArt(ETERNITY_OVERLORD_V2_DEF, 'eternity_overlord'),
+  eternity_reborn: createBossArt(ETERNITY_REBORN_V2_DEF, 'eternity_reborn'),
+  aeon_oracle: createBossArt(CHRONOS_KEEPER_V2_DEF, 'aeon_oracle'),
+  council_zenith_templar: createBossArt(ZENITH_TEMPLAR_V2_DEF, 'council_zenith_templar'),
+  chaos_weaver: createBossArt(CHAOS_WEAVER_V2_DEF, 'chaos_weaver'),
 });
+
+export const FLOOR100_V2_KINDS = Object.freeze(new Set([
+  'eternity_overlord',
+  'eternity_reborn',
+  'aeon_oracle',
+  'council_zenith_templar',
+  'chaos_weaver',
+]));
 
 export function resolveBossArt(kind, bossVisuals) {
   if (!bossVisuals?.v2) return null;
   return Object.hasOwn(BOSS_ART_V2, kind) ? BOSS_ART_V2[kind] : null;
 }
 
-function drawSpans(ctx, art, left, top, scale, materialOverrides) {
+export function resolveContextBossArt(kind, state, bossVisuals, floor100Room = 249) {
+  if (!kind) return null;
+  if (FLOOR100_V2_KINDS.has(kind) && (state?.room !== floor100Room || state?.rift)) {
+    return null;
+  }
+  return resolveBossArt(kind, bossVisuals);
+}
+
+const MAX_SPAN_RASTER_CACHE = 384;
+const spanRasterCache = new Map();
+const artRowsIds = new WeakMap();
+let nextArtRowsId = 1;
+
+function getArtRowsId(rows) {
+  let id = artRowsIds.get(rows);
+  if (!id) {
+    id = nextArtRowsId++;
+    artRowsIds.set(rows, id);
+  }
+  return id;
+}
+
+function serializeOverrides(materialOverrides) {
+  if (!materialOverrides) return '';
+  const keys = Object.keys(materialOverrides);
+  if (keys.length === 0) return '';
+  keys.sort();
+  let out = '';
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    out += (i ? ',' : '') + k + ':' + materialOverrides[k];
+  }
+  return out;
+}
+
+function drawSpansDirect(ctx, art, left, top, scale, materialOverrides) {
   for (const [row, spans] of art.rows.entries()) {
     const y = Math.round(row * scale);
     const height = Math.round((row + 1) * scale) - y;
@@ -208,6 +261,46 @@ function drawSpans(ctx, art, left, top, scale, materialOverrides) {
       ctx.fillRect(left + x, top + y, width, height);
     }
   }
+}
+
+function drawSpans(ctx, art, left, top, scale, materialOverrides) {
+  if (typeof globalThis.document?.createElement === 'function' && ctx?.canvas && typeof ctx.drawImage === 'function') {
+    const key = `${getArtRowsId(art.rows)}|${Math.round(scale * 10000)}|${serializeOverrides(materialOverrides)}`;
+    let cached = spanRasterCache.get(key);
+    if (cached) {
+      spanRasterCache.delete(key);
+      spanRasterCache.set(key, cached);
+    } else {
+      const cw = Math.max(1, Math.round(art.width * scale));
+      const ch = Math.max(1, Math.round(art.height * scale));
+      const off = globalThis.document.createElement('canvas');
+      off.width = cw;
+      off.height = ch;
+      const offCtx = off.getContext?.('2d');
+      if (offCtx && typeof offCtx.fillRect === 'function') {
+        drawSpansDirect(offCtx, art, 0, 0, scale, materialOverrides);
+        if (spanRasterCache.size >= MAX_SPAN_RASTER_CACHE) {
+          const oldKey = spanRasterCache.keys().next().value;
+          const old = spanRasterCache.get(oldKey);
+          spanRasterCache.delete(oldKey);
+          if (old?.canvas) {
+            old.canvas.width = 0;
+            old.canvas.height = 0;
+          }
+        }
+        cached = { canvas: off };
+        spanRasterCache.set(key, cached);
+      }
+    }
+    if (cached) {
+      const prevSmooth = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(cached.canvas, left, top);
+      ctx.imageSmoothingEnabled = prevSmooth;
+      return;
+    }
+  }
+  drawSpansDirect(ctx, art, left, top, scale, materialOverrides);
 }
 
 function drawPartLayer(ctx, parts, layer, left, top, scale, materialOverrides, partStates) {

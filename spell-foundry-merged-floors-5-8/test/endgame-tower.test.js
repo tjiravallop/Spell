@@ -73,7 +73,7 @@ test('Endgame Tower Structure: 250 rooms, correct boss rooms and 10 elemental zo
   assert.deepEqual(state.rooms[FLOOR70_BOSS_ROOM], ['thunder_drake_emperor', 'sand_stalker', 'spark_wraith', 'sand_stalker']);
   assert.deepEqual(state.rooms[FLOOR80_BOSS_ROOM], ['cthulhu_ward_tentacle', 'cthulhu_heal_tentacle', 'cthulhu_ink_tentacle', 'cthulhu_crush_tentacle']);
   assert.deepEqual(state.rooms[FLOOR90_BOSS_ROOM], ['nether_dread_lord', 'nether_leech_pillar', 'nether_curse_pillar', 'nether_doom_pillar']);
-  assert.deepEqual(state.rooms[FLOOR100_BOSS_ROOM], ['eternity_overlord', 'zenith_templar', 'chronos_keeper', 'chaos_weaver']);
+  assert.deepEqual(state.rooms[FLOOR100_BOSS_ROOM], ['eternity_overlord', 'council_zenith_templar', 'aeon_oracle', 'chaos_weaver']);
 
   // Floor info verification for key milestones
   const info54 = getFloorInfo(136, 250);
@@ -90,9 +90,9 @@ test('Endgame Tower Structure: 250 rooms, correct boss rooms and 10 elemental zo
   assert.equal(info100.isFinalBoss, true);
 });
 
-test('Endgame Monsters: All 39 monsters have authentic stats, traits, and Canvas 2D silhouettes', () => {
+test('Endgame Monsters: All 41 monsters have authentic stats, traits, and Canvas 2D silhouettes', () => {
   const enemyKeys = Object.keys(ENDGAME_ENEMIES);
-  assert.equal(enemyKeys.length, 39);
+  assert.equal(enemyKeys.length, 41);
   const palette = Array(35).fill('#333333');
 
   // Verify all 30 monsters are in ENEMIES
@@ -354,7 +354,7 @@ test('Void Singularity Flask destroys non-bosses and deals 45 true damage to bos
   const state = createRun('void-flask-test');
   state.player.items = ['void_singularity_flask'];
   state.enemies = [
-    createEnemy('zenith_templar', 0), // non-boss, 1380 HP, 5 armor
+    createEnemy('astral_vanguard', 0), // non-boss, 1380 HP, 5 armor
     createEnemy('volcano_colossus', 1), // boss, 1500 HP, 3 armor
   ];
 
@@ -1135,7 +1135,7 @@ test('Floor 100★★★ Eternity Overlord: 3-Phase Tri-Cycle (Council, Prism Sh
   assert.deepEqual(ETERNITY_PHASE_HP, [3500, 3500, 4500]);
   assert.deepEqual(
     base.enemies.map(e => e.kind),
-    ['eternity_overlord', 'zenith_templar', 'chronos_keeper', 'chaos_weaver'],
+    ['eternity_overlord', 'council_zenith_templar', 'aeon_oracle', 'chaos_weaver'],
   );
   assert.equal(base.enemies[0].hp, 7000);
   assert.equal(base.enemies[0].armor, 6);
@@ -1161,7 +1161,7 @@ test('Floor 100★★★ Eternity Overlord: 3-Phase Tri-Cycle (Council, Prism Sh
   assert.equal(t2Council.enemies[0].ward, 0);
   assert.equal(intent(t2Council.enemies[0], 2, t2Council.enemies, FLOOR100_BOSS_ROOM).amount, 82 + 30);
 
-  // chronos_keeper odd-turn ward-grant in Room 249 (blockable by seal)
+  // aeon_oracle odd-turn ward-grant in Room 249 (blockable by seal)
   const chronosT1 = intent(base.enemies[2], 1, base.enemies, FLOOR100_BOSS_ROOM);
   assert.equal(chronosT1.type, 'ward-grant', 'Chronos Keeper must grant ward on odd turns in Floor 100');
   const sealedChronos = structuredClone(base);

@@ -3,6 +3,11 @@ import { NETHER_DREAD_LORD_SIZE } from './boss-art/nether-dread-lord-v2.js';
 import { NETHER_LEECH_PILLAR_SIZE } from './boss-art/nether-leech-pillar-v2.js';
 import { NETHER_CURSE_PILLAR_SIZE } from './boss-art/nether-curse-pillar-v2.js';
 import { NETHER_DOOM_PILLAR_SIZE } from './boss-art/nether-doom-pillar-v2.js';
+import { ETERNITY_OVERLORD_V2_SIZE } from './boss-art/eternity-overlord-v2.js';
+import { ETERNITY_REBORN_V2_SIZE } from './boss-art/eternity-reborn-v2.js';
+import { CHRONOS_KEEPER_SIZE } from './boss-art/chronos-keeper-v2.js';
+import { ZENITH_TEMPLAR_SIZE } from './boss-art/zenith-templar-v2.js';
+import { CHAOS_WEAVER_SIZE } from './boss-art/chaos-weaver-v2.js';
 
 export { getOpaqueBounds };
 
@@ -219,6 +224,11 @@ export const BOSS_SIZE_V2 = Object.freeze({
   nether_leech_pillar: NETHER_LEECH_PILLAR_SIZE,
   nether_curse_pillar: NETHER_CURSE_PILLAR_SIZE,
   nether_doom_pillar: NETHER_DOOM_PILLAR_SIZE,
+  eternity_overlord: ETERNITY_OVERLORD_V2_SIZE,
+  eternity_reborn: ETERNITY_REBORN_V2_SIZE,
+  aeon_oracle: CHRONOS_KEEPER_SIZE,
+  council_zenith_templar: ZENITH_TEMPLAR_SIZE,
+  chaos_weaver: CHAOS_WEAVER_SIZE,
 });
 
 export function resolveBossTargetHeight(kind, { sizeTier = null, customHeight = null } = {}) {
@@ -318,6 +328,7 @@ export function getBossVisualBounds(kind, x, baseline, bob, art, bossVisuals = n
     ...(spec?.anchors?.sealCenter ? { sealCenter: mapAnchor(spec.anchors.sealCenter, centerX, bounds.minY + bounds.height * 0.48) } : {}),
     ...(spec?.anchors?.sealRight ? { sealRight: mapAnchor(spec.anchors.sealRight, centerX + 24, bounds.minY + bounds.height * 0.4) } : {}),
     ...(spec?.anchors?.seal ? { seal: mapAnchor(spec.anchors.seal, centerX, bounds.minY + bounds.height * 0.35) } : {}),
+    ...(spec?.anchors?.shield ? { shield: mapAnchor(spec.anchors.shield, bounds.maxX - bounds.width * 0.2, bounds.minY + bounds.height * 0.55) } : {}),
     bodyCenter: mapAnchor(spec?.anchors?.bodyCenter, centerX, bounds.minY + bounds.height * 0.55),
     ward: {
       left: wardLeft,

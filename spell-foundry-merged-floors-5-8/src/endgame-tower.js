@@ -66,13 +66,15 @@ export const ENDGAME_ENEMIES = {
   nether_doom_pillar: { name: 'เสาพิพากษานรกานต์', hp: 1250, armor: 5, ward: 0, attack: 52, color: '#3a0ca3', exp: 60, gold: 52, isBoss: true, affinity: 'ice' },
 
   // --- Floors 91–95: Chamber of Cosmic Chaos (Cosmic 🌌) ---
+  cosmic_silk_oracle: { name: 'โหราจารย์ใยดารา', hp: 1080, armor: 4, ward: 2, attack: 72, color: '#7209b7', exp: 106, gold: 92, swapTurn: 1, affinity: 'lightning' },
   chaos_weaver: { name: 'ผู้ถักทอความโกลาหล', hp: 1080, armor: 4, ward: 2, attack: 72, color: '#7209b7', exp: 106, gold: 92, swapTurn: 1, affinity: 'lightning' },
   astral_chimera: { name: 'คิเมร่าดวงดาว', hp: 1200, armor: 4, ward: 1, attack: 82, color: '#560bad', exp: 110, gold: 96, affinity: 'lightning' },
   primordial_avatar: { name: 'อวตารปฐมกาล', hp: 6800, armor: 5, ward: 2, attack: 90, color: '#480ca8', exp: 250, gold: 240, isBoss: true, swapTurn: 2, wardTurn: 1, heavy: 136, affinity: 'lightning' },
 
   // --- Floors 96–100: The Celestial Zenith (Endgame Climax 🌌) ---
-  zenith_templar: { name: 'อัศวินดวงดาวนิรันดร์', hp: 1380, armor: 5, ward: 2, attack: 88, color: '#4cc9f0', exp: 120, gold: 105, affinity: 'ice' },
-  chronos_keeper: { name: 'ผู้คุมเวลาดึกดำบรรพ์', hp: 1250, armor: 4, ward: 2, attack: 78, color: '#4895ef', exp: 115, gold: 100, affinity: 'ice' },
+  astral_vanguard: { name: 'องครักษ์ดาราเหล็ก', hp: 1380, armor: 5, ward: 2, attack: 88, color: '#4cc9f0', exp: 120, gold: 105, affinity: 'ice' },
+  council_zenith_templar: { name: 'อัศวินดวงดาวนิรันดร์', hp: 1380, armor: 5, ward: 2, attack: 88, color: '#4cc9f0', exp: 120, gold: 105, affinity: 'ice' },
+  aeon_oracle: { name: 'โหราจารย์แห่งกาลนิรันดร์', hp: 1250, armor: 4, ward: 2, attack: 78, color: '#4895ef', exp: 115, gold: 100, affinity: 'ice' },
   eternity_overlord: { name: 'มหาเทพราชันอนันตกาล', hp: 10000, armor: 6, ward: 2, attack: 98, color: '#f72585', exp: 500, gold: 500, isBoss: true, repeatReduction: 75, affinity: 'ice' },
   eternity_reborn: { name: 'มหาเทพอนันตกาล · ร่างจุตินิรันดร์', hp: ETERNITY_PHASE_HP[2], armor: 6, ward: 2, attack: 124, color: '#ffd166', exp: 500, gold: 500, isBoss: true, repeatReduction: 50, affinity: 'fire' },
 };
@@ -421,34 +423,34 @@ export function buildEndgameTowerRooms(p) {
     ['nether_dread_lord', 'nether_leech_pillar', 'nether_curse_pillar', 'nether_doom_pillar'],
 
     // === ZONE 10: Floors 91–94 (rooms 225–236, Cosmic Chaos 🌌) ===
-    ['chaos_weaver', 'astral_chimera'],
-    p([['chaos_weaver', 'chaos_weaver'], ['astral_chimera', 'astral_chimera']]),
+    ['cosmic_silk_oracle', 'astral_chimera'],
+    p([['cosmic_silk_oracle', 'cosmic_silk_oracle'], ['astral_chimera', 'astral_chimera']]),
     ['primordial_avatar'], // 91-3 boss
-    ['chaos_weaver', 'astral_chimera', 'chaos_weaver'],
-    p([['astral_chimera', 'chaos_weaver', 'astral_chimera'], ['chaos_weaver', 'astral_chimera']]),
-    ['primordial_avatar', 'chaos_weaver'], // 92-3 boss
-    ['astral_chimera', 'chaos_weaver', 'astral_chimera'],
-    p([['chaos_weaver', 'chaos_weaver', 'astral_chimera'], ['astral_chimera', 'astral_chimera', 'chaos_weaver']]),
+    ['cosmic_silk_oracle', 'astral_chimera', 'cosmic_silk_oracle'],
+    p([['astral_chimera', 'cosmic_silk_oracle', 'astral_chimera'], ['cosmic_silk_oracle', 'astral_chimera']]),
+    ['primordial_avatar', 'cosmic_silk_oracle'], // 92-3 boss
+    ['astral_chimera', 'cosmic_silk_oracle', 'astral_chimera'],
+    p([['cosmic_silk_oracle', 'cosmic_silk_oracle', 'astral_chimera'], ['astral_chimera', 'astral_chimera', 'cosmic_silk_oracle']]),
     ['primordial_avatar', 'astral_chimera'], // 93-3 boss
-    ['chaos_weaver', 'astral_chimera', 'chaos_weaver', 'astral_chimera'],
-    p([['chaos_weaver', 'astral_chimera', 'chaos_weaver'], ['astral_chimera', 'chaos_weaver', 'astral_chimera']]),
-    ['primordial_avatar', 'chaos_weaver', 'astral_chimera'], // 94-3 boss
+    ['cosmic_silk_oracle', 'astral_chimera', 'cosmic_silk_oracle', 'astral_chimera'],
+    p([['cosmic_silk_oracle', 'astral_chimera', 'cosmic_silk_oracle'], ['astral_chimera', 'cosmic_silk_oracle', 'astral_chimera']]),
+    ['primordial_avatar', 'cosmic_silk_oracle', 'astral_chimera'], // 94-3 boss
 
     // === ZONE 10: Floors 96–99 (rooms 237–248, Celestial Summit 🌌) ===
-    ['zenith_templar', 'chronos_keeper'],
-    p([['zenith_templar', 'zenith_templar'], ['chronos_keeper', 'chronos_keeper']]),
+    ['astral_vanguard', 'aeon_oracle'],
+    p([['astral_vanguard', 'astral_vanguard'], ['aeon_oracle', 'aeon_oracle']]),
     ['eternity_overlord'], // 96-3 boss (avatar form)
-    ['zenith_templar', 'chronos_keeper', 'zenith_templar'],
-    p([['chronos_keeper', 'zenith_templar', 'chronos_keeper'], ['zenith_templar', 'chronos_keeper']]),
-    ['eternity_overlord', 'zenith_templar'], // 97-3 boss
-    ['chronos_keeper', 'zenith_templar', 'chronos_keeper'],
-    p([['zenith_templar', 'zenith_templar', 'chronos_keeper'], ['chronos_keeper', 'chronos_keeper', 'zenith_templar']]),
-    ['eternity_overlord', 'chronos_keeper'], // 98-3 boss
-    ['zenith_templar', 'chronos_keeper', 'zenith_templar', 'chronos_keeper'],
-    p([['zenith_templar', 'chronos_keeper', 'zenith_templar'], ['chronos_keeper', 'zenith_templar', 'chronos_keeper']]),
-    ['eternity_overlord', 'zenith_templar', 'chronos_keeper'], // 99-3 boss
+    ['astral_vanguard', 'aeon_oracle', 'astral_vanguard'],
+    p([['aeon_oracle', 'astral_vanguard', 'aeon_oracle'], ['astral_vanguard', 'aeon_oracle']]),
+    ['eternity_overlord', 'astral_vanguard'], // 97-3 boss
+    ['aeon_oracle', 'astral_vanguard', 'aeon_oracle'],
+    p([['astral_vanguard', 'astral_vanguard', 'aeon_oracle'], ['aeon_oracle', 'aeon_oracle', 'astral_vanguard']]),
+    ['eternity_overlord', 'aeon_oracle'], // 98-3 boss
+    ['astral_vanguard', 'aeon_oracle', 'astral_vanguard', 'aeon_oracle'],
+    p([['astral_vanguard', 'aeon_oracle', 'astral_vanguard'], ['aeon_oracle', 'astral_vanguard', 'aeon_oracle']]),
+    ['eternity_overlord', 'astral_vanguard', 'aeon_oracle'], // 99-3 boss
 
     // Floor 100★★★ Ultimate Endgame Final Boss (room 249)
-    ['eternity_overlord', 'zenith_templar', 'chronos_keeper', 'chaos_weaver'],
+    ['eternity_overlord', 'council_zenith_templar', 'aeon_oracle', 'chaos_weaver'],
   ];
 }

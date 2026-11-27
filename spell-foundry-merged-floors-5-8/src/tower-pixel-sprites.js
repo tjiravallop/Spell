@@ -434,7 +434,7 @@ const DESIGNS = {
 ...slsm..sls
 ..smsls.smls
 `],
-  chronos_keeper: ['astral', 2, `
+  aeon_oracle: ['astral', 2, `
 ......ahah
 .....ahlhla
 .....alssla

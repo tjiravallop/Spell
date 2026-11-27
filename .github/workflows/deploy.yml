@@ -35,7 +35,7 @@ jobs:
         run: |
           rm -rf ../dist
           mkdir -p ../dist
-          cp index.html styles.css battle-ui.css ../dist/
+          cp index.html styles.css battle-ui.css battlefield-hud-v3.css ../dist/
           cp -r src assets ../dist/
           touch ../dist/.nojekyll
 

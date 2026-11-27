@@ -918,6 +918,9 @@ export const middleSprites = {
   },
 
   // --- Floors 91–95: Chamber of Cosmic Chaos (Cosmic 🌌) ---
+  cosmic_silk_oracle(r, c, pose, frame) {
+    return middleSprites.chaos_weaver(r, c, pose, frame);
+  },
   chaos_weaver(r, c, pose, frame) {
     const atk = pose === 'attack';
     const floatY = [0, -1, 0, 1][frame % 4];
@@ -973,7 +976,7 @@ export const middleSprites = {
   },
 
   // --- Floors 96–100: The Celestial Zenith (Endgame Climax 🌌) ---
-  zenith_templar(r, c, pose, frame) {
+  astral_vanguard(r, c, pose, frame) {
     const atk = pose === 'attack';
     // Star Crest Helm
     r(11, 1, 10, 6, c[25]);
@@ -990,7 +993,10 @@ export const middleSprites = {
     r(8, 22, 6, 8, c[23]); r(18, 22, 6, 8, c[23]);
     if (atk) r(2, 10, 20, 3, c[31]); // Blade arc
   },
-  chronos_keeper(r, c, pose, frame) {
+  council_zenith_templar(r, c, pose, frame) {
+    return middleSprites.astral_vanguard(r, c, pose, frame);
+  },
+  aeon_oracle(r, c, pose, frame) {
     const atk = pose === 'attack';
     const floatY = [0, -1, 0, 1][frame % 4];
     // Floating Golden Sundial / Hourglass Halo
